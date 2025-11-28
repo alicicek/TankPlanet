@@ -1,0 +1,84 @@
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #e8edf7;
+  background: #05070d;
+}
+
+* { box-sizing: border-box; }
+body, html {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at 20% 20%, rgba(255, 99, 71, 0.08), transparent 45%),
+              radial-gradient(circle at 80% 10%, rgba(100, 149, 237, 0.12), transparent 40%),
+              #05070d;
+}
+
+#app { width: 100%; height: 100%; position: relative; }
+canvas { display: block; }
+
+.hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 10px 12px;
+  background: rgba(8, 12, 20, 0.65);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
+  font-size: 13px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.hud .row { display: flex; gap: 8px; align-items: center; }
+.bar {
+  width: 180px;
+  height: 10px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.bar .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6b6b, #feca57);
+  width: 100%;
+}
+
+.weapon-ui {
+  margin-top: 8px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.killfeed {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 220px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.killfeed .item {
+  background: rgba(8, 12, 20, 0.7);
+  border-radius: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.center-msg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #f5f7ff;
+  font-size: 28px;
+  letter-spacing: 0.06em;
+  text-shadow: 0 2px 16px rgba(0,0,0,0.8);
+  pointer-events: none;
+}

@@ -51,6 +51,7 @@ interface Player {
   color: string;
   pos: Vec3;
   vel: Vec3;
+  heading: Vec3;
   yaw: number;
   yawVel: number;
   hp: number;
@@ -139,12 +140,20 @@ function preferredSpawnPoint(radius: number): Vec3 {
 function createPlayer(id: number, name: string, color: string): Player {
   const dir = preferredSpawnPoint(1);
   const pos = v.scale(v.norm(dir), PLANET_RADIUS + HOVER);
+  const normal = v.norm(pos);
+  const ref = Math.abs(normal.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+  const heading = v.norm({
+    x: normal.y * ref.z - normal.z * ref.y,
+    y: normal.z * ref.x - normal.x * ref.z,
+    z: normal.x * ref.y - normal.y * ref.x,
+  });
   return {
     id,
     name,
     color,
     pos,
     vel: { x: 0, y: 0, z: 0 },
+    heading,
     yaw: 0,
     yawVel: 0,
     hp: 100,
@@ -157,34 +166,32 @@ function createPlayer(id: number, name: string, color: string): Player {
   };
 }
 
-function computeForward(normal: Vec3, yaw: number): Vec3 {
-  // Build a stable tangent basis that does not degenerate near the poles.
-  const ref = Math.abs(normal.y) < 0.99 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
-  const tangent = v.norm({
-    x: ref.y * normal.z - ref.z * normal.y,
-    y: ref.z * normal.x - ref.x * normal.z,
-    z: ref.x * normal.y - ref.y * normal.x,
-  });
-  const bitangent = v.norm({
-    x: normal.y * tangent.z - normal.z * tangent.y,
-    y: normal.z * tangent.x - normal.x * tangent.z,
-    z: normal.x * tangent.y - normal.y * tangent.x,
-  });
-  const forward = v.add(v.scale(tangent, Math.cos(yaw)), v.scale(bitangent, Math.sin(yaw)));
-  return v.norm(forward);
-}
-
 function stepPlayer(p: Player, dt: number) {
-  const normal = v.norm(p.pos);
+  const oldNormal = v.norm(p.pos);
   // Smooth turning
   const targetYawVel = p.input.turn * TUNING.turnSpeed;
   const lerp = Math.min(1, TUNING.turnSmooth * dt);
   p.yawVel = p.yawVel + (targetYawVel - p.yawVel) * lerp;
-  p.yaw += p.yawVel * dt;
-  const forward = computeForward(normal, p.yaw);
-  p.vel = v.add(p.vel, v.scale(forward, p.input.thrust * TUNING.thrust * dt));
+  const dYaw = p.yawVel * dt;
+  p.yaw += dYaw;
+
+  // Rotate heading about the current normal (Rodrigues).
+  const c = Math.cos(dYaw);
+  const s = Math.sin(dYaw);
+  const h = p.heading;
+  const n = oldNormal;
+  const crossNH = { x: n.y * h.z - n.z * h.y, y: n.z * h.x - n.x * h.z, z: n.x * h.y - n.y * h.x };
+  const dotNH = v.dot(n, h);
+  p.heading = v.norm(
+    v.add(
+      v.add(v.scale(h, c), v.scale(crossNH, s)),
+      v.scale(n, dotNH * (1 - c))
+    )
+  );
+
+  // Thrust along heading (already tangent to old normal).
+  p.vel = v.add(p.vel, v.scale(p.heading, p.input.thrust * TUNING.thrust * dt));
   // project velocity onto tangent
-  const n = normal;
   p.vel = v.sub(p.vel, v.scale(n, v.dot(p.vel, n)));
   // drag
   p.vel = v.scale(p.vel, Math.max(0, 1 - TUNING.drag * dt));
@@ -193,8 +200,21 @@ function stepPlayer(p: Player, dt: number) {
   if (speed > TUNING.maxSpeed) p.vel = v.scale(p.vel, TUNING.maxSpeed / speed);
   p.pos = v.add(p.pos, v.scale(p.vel, dt));
   // keep on surface
-  const dir = v.norm(p.pos);
-  p.pos = v.scale(dir, PLANET_RADIUS + HOVER);
+  const newNormal = v.norm(p.pos);
+  p.pos = v.scale(newNormal, PLANET_RADIUS + HOVER);
+
+  // Parallel-transport heading onto new tangent plane.
+  p.heading = v.sub(p.heading, v.scale(newNormal, v.dot(p.heading, newNormal)));
+  if (v.len(p.heading) < 1e-6) {
+    const ref = Math.abs(newNormal.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+    p.heading = v.norm({
+      x: newNormal.y * ref.z - newNormal.z * ref.y,
+      y: newNormal.z * ref.x - newNormal.x * ref.z,
+      z: newNormal.x * ref.y - newNormal.y * ref.x,
+    });
+  } else {
+    p.heading = v.norm(p.heading);
+  }
 }
 
 function rayHitPlayer(origin: Vec3, dir: Vec3, range: number, ignoreId: number) {
@@ -253,8 +273,16 @@ function respawnIfNeeded(p: Player) {
     const dir = preferredSpawnPoint(1);
     p.pos = v.scale(v.norm(dir), PLANET_RADIUS + HOVER);
     p.vel = { x: 0, y: 0, z: 0 };
+    const normal = v.norm(p.pos);
+    const ref = Math.abs(normal.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+    p.heading = v.norm({
+      x: normal.y * ref.z - normal.z * ref.y,
+      y: normal.z * ref.x - normal.x * ref.z,
+      z: normal.x * ref.y - normal.y * ref.x,
+    });
     p.hp = 100;
     p.yaw = 0;
+    p.yawVel = 0;
     p.alive = true;
     broadcast({ type: 'event', kind: 'respawn', player: p.id });
   }
@@ -265,7 +293,7 @@ function processFiring(now: number, dt: number) {
     if (!p.alive || !p.input.fire) continue;
     if (now - p.lastFire < FIRE_RATE) continue;
     p.lastFire = now;
-    const dir = computeForward(v.norm(p.pos), p.yaw);
+    const dir = v.norm(p.heading);
     const origin = v.add(p.pos, v.scale(dir, 1.5));
     const target = rayHitPlayer(origin, dir, 40, p.id);
     if (target) {
@@ -395,6 +423,7 @@ function sendSnapshots(now: number) {
       id: p.id,
       pos: [p.pos.x, p.pos.y, p.pos.z],
       vel: [p.vel.x, p.vel.y, p.vel.z],
+      heading: [p.heading.x, p.heading.y, p.heading.z],
       yaw: p.yaw,
       hp: p.hp,
       score: p.score,

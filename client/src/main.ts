@@ -27,6 +27,7 @@ interface SnapshotPlayer {
   id: number;
   pos: [number, number, number];
   vel: [number, number, number];
+  heading: [number, number, number];
   yaw: number;
   yawVel?: number;
   hp: number;
@@ -172,7 +173,7 @@ scene.add(planet);
 const tankMeshes = new Map<number, THREE.Object3D>();
 const pickupMeshes = new Map<number, THREE.Object3D>();
 const fireMeshes = new Map<number, THREE.Mesh>();
-const renderStates = new Map<number, { pos: THREE.Vector3; targetPos: THREE.Vector3; yaw: number; targetYaw: number }>();
+const renderStates = new Map<number, { pos: THREE.Vector3; targetPos: THREE.Vector3; heading: THREE.Vector3; targetHeading: THREE.Vector3; yaw: number; targetYaw: number }>();
 let playerId: number | null = null;
 let playerName = 'Pilot';
 let localState: SnapshotPlayer | null = null;
@@ -242,47 +243,60 @@ function pushKillfeed(text: string) {
   setTimeout(() => el.remove(), 5000);
 }
 
-function computeForward(pos: Vec3, yaw: number): Vec3 {
-  const normal = v.norm(pos);
-  // Build a stable tangent basis so heading does not flip near the poles.
-  const ref = Math.abs(normal.y) < 0.99 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
-  const tangent = v.norm({
-    x: ref.y * normal.z - ref.z * normal.y,
-    y: ref.z * normal.x - ref.x * normal.z,
-    z: ref.x * normal.y - ref.y * normal.x,
-  });
-  const bitan = v.norm({
-    x: normal.y * tangent.z - normal.z * tangent.y,
-    y: normal.z * tangent.x - normal.x * tangent.z,
-    z: normal.x * tangent.y - normal.y * tangent.x,
-  });
-  const fwd = v.add(v.scale(tangent, Math.cos(yaw)), v.scale(bitan, Math.sin(yaw)));
-  return v.norm(fwd);
-}
-
 function stepLocal(dt: number) {
   if (!localState) return;
   const pos: Vec3 = { x: localState.pos[0], y: localState.pos[1], z: localState.pos[2] };
   const vel: Vec3 = { x: localState.vel[0], y: localState.vel[1], z: localState.vel[2] };
+  let heading: Vec3 = { x: localState.heading[0], y: localState.heading[1], z: localState.heading[2] };
   const normal = v.norm(pos);
-  // Smooth turning
+
+  // Smooth turning; keep yaw for UI/debug, but heading is authoritative.
   const currentYawVel = (localState as any).yawVel ?? 0;
   const targetYawVel = input.turn * movement.turnSpeed;
   const lerp = Math.min(1, movement.turnSmooth * dt);
   const nextYawVel = currentYawVel + (targetYawVel - currentYawVel) * lerp;
   (localState as any).yawVel = nextYawVel;
-  localState.yaw += nextYawVel * dt;
-  const forward = computeForward(pos, localState.yaw);
-  const vel2 = v.add(vel, v.scale(forward, input.thrust * movement.thrust * dt));
+  const dYaw = nextYawVel * dt;
+  localState.yaw += dYaw;
+
+  // Rotate heading about the current normal (Rodrigues).
+  const c = Math.cos(dYaw);
+  const s = Math.sin(dYaw);
+  const crossNH = { x: normal.y * heading.z - normal.z * heading.y, y: normal.z * heading.x - normal.x * heading.z, z: normal.x * heading.y - normal.y * heading.x };
+  const dotNH = v.dot(normal, heading);
+  heading = v.norm(
+    v.add(
+      v.add(v.scale(heading, c), v.scale(crossNH, s)),
+      v.scale(normal, dotNH * (1 - c))
+    )
+  );
+
+  // Thrust along heading (tangent already).
+  const vel2 = v.add(vel, v.scale(heading, input.thrust * movement.thrust * dt));
   const tangentVel = v.sub(vel2, v.scale(normal, v.dot(vel2, normal)));
   let finalVel = v.scale(tangentVel, Math.max(0, 1 - movement.drag * dt));
   const speed = v.len(finalVel);
   if (speed > movement.maxSpeed) finalVel = v.scale(finalVel, movement.maxSpeed / speed);
   const newPos = v.add(pos, v.scale(finalVel, dt));
-  const dir = v.norm(newPos);
-  const clamped = v.scale(dir, PLANET_RADIUS + HOVER);
+  const newNormal = v.norm(newPos);
+  const clamped = v.scale(newNormal, PLANET_RADIUS + HOVER);
+
+  // Parallel-transport heading onto new tangent plane.
+  heading = v.sub(heading, v.scale(newNormal, v.dot(heading, newNormal)));
+  if (v.len(heading) < 1e-6) {
+    const ref = Math.abs(newNormal.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+    heading = v.norm({
+      x: newNormal.y * ref.z - newNormal.z * ref.y,
+      y: newNormal.z * ref.x - newNormal.x * ref.z,
+      z: newNormal.x * ref.y - newNormal.y * ref.x,
+    });
+  } else {
+    heading = v.norm(heading);
+  }
+
   localState.pos = [clamped.x, clamped.y, clamped.z];
   localState.vel = [finalVel.x, finalVel.y, finalVel.z];
+  localState.heading = [heading.x, heading.y, heading.z];
 }
 
 function updatePlanetCamera(dt: number, tankWorldPos: THREE.Vector3) {
@@ -385,14 +399,23 @@ function renderEntities(dt: number) {
     state.pos.lerp(state.targetPos, lerp);
     const shortest = Math.atan2(Math.sin(state.targetYaw - state.yaw), Math.cos(state.targetYaw - state.yaw));
     state.yaw = state.yaw + shortest * lerp;
+    const normal = state.pos.clone().normalize();
+    state.heading.lerp(state.targetHeading, lerp);
+    if (state.heading.lengthSq() < 1e-6) {
+      const ref = Math.abs(normal.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+      state.heading.copy(new THREE.Vector3().crossVectors(normal, ref).normalize());
+    } else {
+      state.heading.normalize();
+    }
 
     mesh.position.copy(state.pos);
-    mesh.up.copy(state.pos).normalize();
-    const normal = mesh.up.clone();
-    const ref = Math.abs(normal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
-    const tangent = new THREE.Vector3().crossVectors(ref, normal).normalize(); // match physics basis
-    const bitan = new THREE.Vector3().crossVectors(normal, tangent).normalize();
-    const forward = new THREE.Vector3().addScaledVector(tangent, Math.cos(state.yaw)).addScaledVector(bitan, Math.sin(state.yaw)).normalize();
+    mesh.up.copy(normal);
+
+    const forward = state.heading.clone().normalize();
+    if (forward.lengthSq() < 1e-6) {
+      const ref = Math.abs(normal.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+      forward.copy(new THREE.Vector3().crossVectors(normal, ref).normalize());
+    }
     const eye = mesh.position.clone();
     const target = eye.clone().add(forward);
     const mtx = new THREE.Matrix4().lookAt(eye, target, normal);
@@ -433,6 +456,16 @@ function handleSnapshot(msg: SnapshotMessage) {
         // smooth yaw to avoid snapping
         const shortest = Math.atan2(Math.sin(state.yaw - localState.yaw), Math.cos(state.yaw - localState.yaw));
         localState.yaw = localState.yaw + shortest * 0.2;
+        // blend heading
+        const lh: Vec3 = { x: localState.heading[0], y: localState.heading[1], z: localState.heading[2] };
+        const sh: Vec3 = { x: state.heading[0], y: state.heading[1], z: state.heading[2] };
+        const headingBlend = 0.25;
+        const blended = v.norm({
+          x: lh.x + (sh.x - lh.x) * headingBlend,
+          y: lh.y + (sh.y - lh.y) * headingBlend,
+          z: lh.z + (sh.z - lh.z) * headingBlend,
+        });
+        localState.heading = [blended.x, blended.y, blended.z];
         localState.hp = state.hp;
         localState.score = state.score;
         localState.alive = state.alive;
@@ -451,12 +484,15 @@ function handleSnapshot(msg: SnapshotMessage) {
       r = {
         pos: new THREE.Vector3(...state.pos),
         targetPos: new THREE.Vector3(...state.pos),
+        heading: new THREE.Vector3(...state.heading),
+        targetHeading: new THREE.Vector3(...state.heading),
         yaw: state.yaw,
         targetYaw: state.yaw,
       };
       renderStates.set(state.id, r);
     } else {
       r.targetPos.set(state.pos[0], state.pos[1], state.pos[2]);
+      r.targetHeading.set(state.heading[0], state.heading[1], state.heading[2]);
       r.targetYaw = state.yaw;
       if (!renderStates.has(state.id)) renderStates.set(state.id, r);
     }

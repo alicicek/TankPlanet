@@ -22,7 +22,7 @@ const toTuple = (vec: Vec3): Vector3Tuple => [vec.x, vec.y, vec.z];
 const PLANET_RADIUS = 30;
 const HOVER = 0.6;
 const GRAVITY = 50;
-const TUNING: TuningConfig = {
+const TUNING: Required<TuningConfig> = {
   maxSpeed: 60, // dialed back from 120
   thrust: 90, // softer push than 180
   turnSpeed: 2.5,

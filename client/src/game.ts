@@ -14,8 +14,16 @@ import { UniversalCamera } from '@babylonjs/core/Cameras/universalCamera';
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { Scalar } from '@babylonjs/core/Maths/math.scalar';
-import type { InputCommand, PlayerId, TuningConfig, Vector3 as SharedVector3 } from '@shared/types';
-import type { InputMessage, ServerMessage, SnapshotMessage, SnapshotPlayer } from '@shared/protocol';
+import type {
+  InputMessage,
+  InputState,
+  PlayerId,
+  ServerMessage,
+  SnapshotMessage,
+  SnapshotPlayer,
+  TuningConfig,
+  Vec3,
+} from '@shared';
 
 const PLANET_RADIUS = 30;
 const HOVER = 0.6;
@@ -28,7 +36,6 @@ const CAM_HEIGHT = 60; // distance above planet surface
 const CAM_POS_LERP = 0.1;
 const CAM_LOOK_LERP = 0.15;
 
-type Vec3 = SharedVector3;
 const v = {
   add: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
   sub: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
@@ -193,7 +200,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const _matTmp = new Matrix();
   const _quatTmp = new Quaternion();
 
-  const input: Pick<InputCommand, 'thrust' | 'turn' | 'fire' | 'power'> = { thrust: 0, turn: 0, fire: false, power: false };
+  const input: Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'> = { thrust: 0, turn: 0, fire: false, power: false };
   let inputSeq = 0;
 
   let socket: WebSocket | null = null;

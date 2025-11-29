@@ -1,10 +1,9 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { RawData } from 'ws';
-import type { InputCommand, PlayerId, PowerupType, Vector3, Vector3Tuple, TuningConfig } from '@shared/types';
-import type { ClientMessage, FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared/protocol';
+import type { InputState, PlayerId, PowerupType, Vec3, Vector3Tuple, TuningConfig } from '@shared';
+import type { ClientMessage, FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared';
 
 // Basic vector helpers
-type Vec3 = Vector3;
 const v = {
   add: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
   sub: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
@@ -53,7 +52,7 @@ interface Player {
   alive: boolean;
   respawnAt: number;
   lastFire: number;
-  input: InputCommand;
+  input: InputState;
   contrib: Map<PlayerId, number>; // damage contribution
 }
 

@@ -1,24 +1,13 @@
 import type {
   GameConfig,
-  InputCommand,
+  InputState,
   MatchInfo,
   PlayerId,
   PowerupType,
+  SnapshotPlayer,
   TuningConfig,
   Vector3Tuple,
 } from './types';
-
-export interface SnapshotPlayer {
-  id: PlayerId;
-  pos: Vector3Tuple;
-  vel: Vector3Tuple;
-  heading: Vector3Tuple;
-  yaw: number;
-  yawVel?: number;
-  hp: number;
-  score: number;
-  alive: boolean;
-}
 
 export interface MeteorSnapshot {
   id: number;
@@ -101,14 +90,11 @@ export interface WelcomeMessage {
 
 export type ServerMessage = SnapshotMessage | EventMessage | WelcomeMessage;
 
-export interface InputMessage extends InputCommand {
-  type: 'input';
-}
+export type InputMessage = { type: 'input' } & InputState;
 
 export interface JoinMessage {
   type: 'join';
-  name?: string;
-  color?: string;
+  name: string;
 }
 
 export type ClientMessage = InputMessage | JoinMessage;

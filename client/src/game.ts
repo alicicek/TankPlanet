@@ -587,10 +587,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     socket.onclose = () => {
       centerMsg.textContent = 'Disconnected — retrying...';
       const next = Math.min(5000, 500 + retry * 500);
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       reconnectTimer = window.setTimeout(() => connect(retry + 1), next);
     };
     socket.onerror = (err) => {
-      console.error('Socket error', err);
+      const type = (err as Event)?.type ?? 'unknown';
+      const state = socket?.readyState ?? -1;
+      console.error('WebSocket error', { type, readyState: state, event: err });
+      centerMsg.textContent = 'Unable to connect to server. Retrying...';
     };
   }
 
@@ -646,8 +650,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   return () => {
     if (destroyed) return;
     destroyed = true;
-    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
-    if (inputTimer !== null) window.clearInterval(inputTimer);
+    if (reconnectTimer !== null) {
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (inputTimer !== null) {
+      window.clearInterval(inputTimer);
+      inputTimer = null;
+    }
     if (socket) {
       socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
       socket.close();

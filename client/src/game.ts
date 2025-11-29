@@ -14,6 +14,8 @@ import { UniversalCamera } from '@babylonjs/core/Cameras/universalCamera';
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { Scalar } from '@babylonjs/core/Maths/math.scalar';
+import type { InputCommand, PlayerId, TuningConfig, Vector3 as SharedVector3 } from '@shared/types';
+import type { InputMessage, ServerMessage, SnapshotMessage, SnapshotPlayer } from '@shared/protocol';
 
 const PLANET_RADIUS = 30;
 const HOVER = 0.6;
@@ -26,7 +28,7 @@ const CAM_HEIGHT = 60; // distance above planet surface
 const CAM_POS_LERP = 0.1;
 const CAM_LOOK_LERP = 0.15;
 
-type Vec3 = { x: number; y: number; z: number };
+type Vec3 = SharedVector3;
 const v = {
   add: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
   sub: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
@@ -39,48 +41,8 @@ const v = {
   },
 };
 
-interface SnapshotPlayer {
-  id: number;
-  pos: [number, number, number];
-  vel: [number, number, number];
-  heading: [number, number, number];
-  yaw: number;
-  yawVel?: number;
-  hp: number;
-  score: number;
-  alive: boolean;
-}
-
-interface SnapshotMessage {
-  type: 'snap';
-  time: number;
-  players: SnapshotPlayer[];
-  meteors: { id: number; pos: [number, number, number]; target: [number, number, number] }[];
-  pickups: { id: number; pos: [number, number, number]; payload: string }[];
-  fire: { id: number; center: [number, number, number]; radius: number; ttl: number }[];
-}
-
-interface EventMessage {
-  type: 'event';
-  kind: 'kill' | 'respawn' | 'pickup' | 'meteorImpact';
-  killer?: number;
-  victim?: number;
-  player?: number;
-  payload?: string;
-}
-
-interface WelcomeMessage {
-  type: 'welcome';
-  playerId: number;
-  match: { state: string; timeLeft: number; scoreCap: number };
-  planet: { radius: number };
-  tuning?: { maxSpeed: number; thrust: number; turnSpeed?: number; turnSmooth?: number; drag?: number };
-}
-
-type ServerMessage = SnapshotMessage | EventMessage | WelcomeMessage;
-
 export function createGame(root: HTMLDivElement) {
-  const movement = {
+  const movement: TuningConfig = {
     maxSpeed: 60, // dialed back from 120
     thrust: 90, // softer push than 180
     turnSpeed: 2.5,
@@ -184,11 +146,11 @@ export function createGame(root: HTMLDivElement) {
   planet.isPickable = false;
   planet.freezeWorldMatrix();
 
-  const tankMeshes = new Map<number, TransformNode>();
+  const tankMeshes = new Map<PlayerId, TransformNode>();
   const pickupMeshes = new Map<number, Mesh>();
   const fireMeshes = new Map<number, Mesh>();
-  const renderStates = new Map<number, { pos: Vector3; targetPos: Vector3; heading: Vector3; targetHeading: Vector3; yaw: number; targetYaw: number }>();
-  let playerId: number | null = null;
+  const renderStates = new Map<PlayerId, { pos: Vector3; targetPos: Vector3; heading: Vector3; targetHeading: Vector3; yaw: number; targetYaw: number }>();
+  let playerId: PlayerId | null = null;
   const playerName = 'Pilot';
   let localState: SnapshotPlayer | null = null;
   let lastSnapshotTime = 0;
@@ -209,7 +171,7 @@ export function createGame(root: HTMLDivElement) {
   const _matTmp = new Matrix();
   const _quatTmp = new Quaternion();
 
-  const input = { thrust: 0 as -1 | 0 | 1, turn: 0 as -1 | 0 | 1, fire: false, power: false };
+  const input: Pick<InputCommand, 'thrust' | 'turn' | 'fire' | 'power'> = { thrust: 0, turn: 0, fire: false, power: false };
   let inputSeq = 0;
 
   let socket: WebSocket | null = null;
@@ -602,7 +564,7 @@ export function createGame(root: HTMLDivElement) {
 
   function sendInput() {
     if (!socket || socket.readyState !== WebSocket.OPEN || playerId === null) return;
-    const payload = {
+    const payload: InputMessage = {
       type: 'input',
       seq: inputSeq++,
       thrust: input.thrust,

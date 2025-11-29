@@ -1,8 +1,10 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { RawData } from 'ws';
+import type { InputCommand, PlayerId, PowerupType, Vector3, Vector3Tuple, TuningConfig } from '@shared/types';
+import type { ClientMessage, FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared/protocol';
 
 // Basic vector helpers
-interface Vec3 { x: number; y: number; z: number; }
+type Vec3 = Vector3;
 const v = {
   add: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
   sub: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
@@ -14,12 +16,13 @@ const v = {
     return { x: a.x / l, y: a.y / l, z: a.z / l };
   },
 };
+const toTuple = (vec: Vec3): Vector3Tuple => [vec.x, vec.y, vec.z];
 
 // Constants
 const PLANET_RADIUS = 30;
 const HOVER = 0.6;
 const GRAVITY = 50;
-const TUNING = {
+const TUNING: TuningConfig = {
   maxSpeed: 60, // dialed back from 120
   thrust: 90, // softer push than 180
   turnSpeed: 2.5,
@@ -36,17 +39,8 @@ const FIRE_DPS = 15;
 const FIRE_DURATION = 7;
 
 // Types
-interface InputState {
-  seq: number;
-  thrust: -1 | 0 | 1;
-  turn: -1 | 0 | 1;
-  fire: boolean;
-  power: boolean;
-  dt: number;
-}
-
 interface Player {
-  id: number;
+  id: PlayerId;
   name: string;
   color: string;
   pos: Vec3;
@@ -59,13 +53,13 @@ interface Player {
   alive: boolean;
   respawnAt: number;
   lastFire: number;
-  input: InputState;
-  contrib: Map<number, number>; // damage contribution
+  input: InputCommand;
+  contrib: Map<PlayerId, number>; // damage contribution
 }
 
 interface Projectile {
   id: number;
-  owner: number;
+  owner: PlayerId;
   pos: Vec3;
   vel: Vec3;
   ttl: number;
@@ -85,7 +79,7 @@ interface Meteor {
 
 interface Pickup {
   id: number;
-  payload: string;
+  payload: PowerupType;
   pos: Vec3;
   expiresAt: number;
 }
@@ -100,13 +94,13 @@ interface FireZone {
 }
 
 // State
-let nextId = 1;
-const players = new Map<number, Player>();
+let nextId: PlayerId = 1;
+const players = new Map<PlayerId, Player>();
 const projectiles: Projectile[] = [];
 const meteors: Meteor[] = [];
 const pickups: Pickup[] = [];
 const fireZones: FireZone[] = [];
-const sockets = new Map<number, WebSocket>();
+const sockets = new Map<PlayerId, WebSocket>();
 let lastSnap = 0;
 let nextMeteorTime = 0;
 
@@ -137,7 +131,7 @@ function preferredSpawnPoint(radius: number): Vec3 {
   return v.norm(dir);
 }
 
-function createPlayer(id: number, name: string, color: string): Player {
+function createPlayer(id: PlayerId, name: string, color: string): Player {
   const dir = preferredSpawnPoint(1);
   const pos = v.scale(v.norm(dir), PLANET_RADIUS + HOVER);
   const normal = v.norm(pos);
@@ -217,7 +211,7 @@ function stepPlayer(p: Player, dt: number) {
   }
 }
 
-function rayHitPlayer(origin: Vec3, dir: Vec3, range: number, ignoreId: number) {
+function rayHitPlayer(origin: Vec3, dir: Vec3, range: number, ignoreId: PlayerId) {
   let best: { player: Player; dist: number } | null = null;
   const r2 = range * range;
   for (const p of players.values()) {
@@ -234,7 +228,7 @@ function rayHitPlayer(origin: Vec3, dir: Vec3, range: number, ignoreId: number) 
   return best?.player ?? null;
 }
 
-function applyDamage(target: Player, amount: number, sourceId: number) {
+function applyDamage(target: Player, amount: number, sourceId: PlayerId) {
   target.hp -= amount;
   const prev = target.contrib.get(sourceId) || 0;
   target.contrib.set(sourceId, prev + amount);
@@ -249,7 +243,7 @@ function flingVector(pos: Vec3): Vec3 {
   return v.scale(v.norm(v.add(normal, jitter)), 20);
 }
 
-function killPlayer(target: Player, killerId: number) {
+function killPlayer(target: Player, killerId: PlayerId) {
   target.alive = false;
   target.respawnAt = Date.now() / 1000 + RESPAWN_DELAY;
   target.vel = flingVector(target.pos);
@@ -337,7 +331,7 @@ function stepMeteors(now: number, dt: number) {
 
 function onMeteorImpact(m: Meteor) {
   if (m.type === 'pickup') {
-    const payload = Math.random() < 0.5 ? 'rocket' : 'shotgun';
+    const payload: PowerupType = Math.random() < 0.5 ? 'rocket' : 'shotgun';
     pickups.push({ id: nextId++, payload, pos: m.target, expiresAt: Date.now() / 1000 + 20 });
     broadcast({ type: 'event', kind: 'meteorImpact', id: m.id, result: 'pickup', payload });
   } else {
@@ -350,7 +344,13 @@ function onMeteorImpact(m: Meteor) {
       shrink: 0.5,
     };
     fireZones.push(fire);
-    broadcast({ type: 'event', kind: 'meteorImpact', id: m.id, result: 'fire', fire });
+    const fireSnapshot: FireZoneSnapshot = {
+      id: fire.id,
+      center: toTuple(fire.center),
+      radius: fire.radius,
+      ttl: fire.duration,
+    };
+    broadcast({ type: 'event', kind: 'meteorImpact', id: m.id, result: 'fire', fire: fireSnapshot });
   }
 }
 
@@ -416,36 +416,41 @@ function tick() {
 }
 
 function sendSnapshots(now: number) {
-  const payload = {
+  const payload: SnapshotMessage = {
     type: 'snap',
     time: now,
     players: Array.from(players.values()).map((p) => ({
       id: p.id,
-      pos: [p.pos.x, p.pos.y, p.pos.z],
-      vel: [p.vel.x, p.vel.y, p.vel.z],
-      heading: [p.heading.x, p.heading.y, p.heading.z],
+      pos: toTuple(p.pos),
+      vel: toTuple(p.vel),
+      heading: toTuple(p.heading),
       yaw: p.yaw,
       hp: p.hp,
       score: p.score,
       alive: p.alive,
     })),
-    meteors: meteors.map((m) => ({ id: m.id, pos: [m.pos.x, m.pos.y, m.pos.z], target: [m.target.x, m.target.y, m.target.z] })),
-    pickups: pickups.map((p) => ({ id: p.id, pos: [p.pos.x, p.pos.y, p.pos.z], payload: p.payload })),
-    fire: fireZones.map((f) => ({ id: f.id, center: [f.center.x, f.center.y, f.center.z], radius: f.radius, ttl: f.duration - (now - f.start) })),
+    meteors: meteors.map((m) => ({ id: m.id, pos: toTuple(m.pos), target: toTuple(m.target) })),
+    pickups: pickups.map((p) => ({ id: p.id, pos: toTuple(p.pos), payload: p.payload })),
+    fire: fireZones.map<FireZoneSnapshot>((f) => ({
+      id: f.id,
+      center: toTuple(f.center),
+      radius: f.radius,
+      ttl: Math.max(0, f.duration - (now - f.start)),
+    })),
   };
   broadcast(payload);
 }
 
-function broadcast(data: any) {
+function broadcast(data: ServerMessage) {
   const str = JSON.stringify(data);
   for (const ws of sockets.values()) {
     if (ws.readyState === ws.OPEN) ws.send(str);
   }
 }
 
-function handleMessage(ws: WebSocket, pid: number, raw: RawData) {
+function handleMessage(pid: PlayerId, raw: RawData) {
   try {
-    const msg = JSON.parse(raw.toString());
+    const msg = JSON.parse(raw.toString()) as ClientMessage;
     if (msg.type === 'input') {
       const p = players.get(pid);
       if (!p) return;
@@ -468,24 +473,23 @@ async function main() {
   console.log('Server listening on ws://localhost:3001');
 
   wss.on('connection', (ws: WebSocket) => {
-    const pid = nextId++;
+    const pid: PlayerId = nextId++;
     const player = createPlayer(pid, 'Pilot' + pid, randomColor());
     players.set(player.id, player);
     sockets.set(pid, ws);
-    ws.on('message', (data: RawData) => handleMessage(ws, player.id, data));
+    ws.on('message', (data: RawData) => handleMessage(player.id, data));
     ws.on('close', () => {
       players.delete(player.id);
       sockets.delete(pid);
     });
-    ws.send(
-      JSON.stringify({
-        type: 'welcome',
-        playerId: pid,
-        match: { state: 'active', timeLeft: 999, scoreCap: 800 },
-        planet: { radius: PLANET_RADIUS },
-        tuning: TUNING,
-      })
-    );
+    const welcome: ServerMessage = {
+      type: 'welcome',
+      playerId: pid,
+      match: { state: 'active', timeLeft: 999, scoreCap: 800 },
+      planet: { radius: PLANET_RADIUS },
+      tuning: TUNING,
+    };
+    ws.send(JSON.stringify(welcome));
     console.log('Player connected', pid);
   });
 

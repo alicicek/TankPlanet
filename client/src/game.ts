@@ -560,23 +560,28 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       socket?.send(JSON.stringify({ type: 'join', name: playerName }));
     };
     socket.onmessage = (ev) => {
-      const data = JSON.parse(ev.data) as ServerMessage;
-      if (data.type === 'welcome') {
-        if (data.tuning) {
-          movement.maxSpeed = data.tuning.maxSpeed ?? movement.maxSpeed;
-          movement.thrust = data.tuning.thrust ?? movement.thrust;
-          if (data.tuning.turnSpeed !== undefined) movement.turnSpeed = data.tuning.turnSpeed;
-          if (data.tuning.turnSmooth !== undefined) movement.turnSmooth = data.tuning.turnSmooth;
-          if (data.tuning.drag !== undefined) movement.drag = data.tuning.drag;
+      const data: ServerMessage = JSON.parse(ev.data);
+      switch (data.type) {
+        case 'welcome': {
+          if (data.tuning) {
+            movement.maxSpeed = data.tuning.maxSpeed ?? movement.maxSpeed;
+            movement.thrust = data.tuning.thrust ?? movement.thrust;
+            if (data.tuning.turnSpeed !== undefined) movement.turnSpeed = data.tuning.turnSpeed;
+            if (data.tuning.turnSmooth !== undefined) movement.turnSmooth = data.tuning.turnSmooth;
+            if (data.tuning.drag !== undefined) movement.drag = data.tuning.drag;
+          }
+          playerId = data.playerId;
+          centerMsg.textContent = '';
+          centerMsg.style.display = 'none';
+          break;
         }
-        playerId = data.playerId;
-        centerMsg.textContent = '';
-        centerMsg.style.display = 'none';
-      } else if (data.type === 'snap') {
-        handleSnapshot(data);
-      } else if (data.type === 'event') {
-        if (data.kind === 'kill') pushKillfeed(`${data.killer} eliminated ${data.victim}`);
-        if (data.kind === 'pickup') pushKillfeed(`Pickup collected`);
+        case 'snap':
+          handleSnapshot(data);
+          break;
+        case 'event':
+          if (data.kind === 'kill') pushKillfeed(`${data.killer} eliminated ${data.victim}`);
+          if (data.kind === 'pickup') pushKillfeed(`Pickup collected`);
+          break;
       }
     };
     socket.onclose = () => {

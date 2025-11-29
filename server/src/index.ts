@@ -4,15 +4,24 @@ import type { InputState, PlayerId } from '@shared/types';
 import type { ClientMessage, ServerMessage } from '@shared/protocol';
 import { createSim, TICK } from './sim';
 
-const sim = createSim();
 const sockets = new Map<PlayerId, WebSocket>();
 
-function broadcast(data: ServerMessage) {
-  const str = JSON.stringify(data);
-  for (const ws of sockets.values()) {
-    if (ws.readyState === ws.OPEN) ws.send(str);
-  }
-}
+const serverCtx = {
+  addConnection(pid: PlayerId, ws: WebSocket) {
+    sockets.set(pid, ws);
+  },
+  removeConnection(pid: PlayerId) {
+    sockets.delete(pid);
+  },
+  broadcast(msg: ServerMessage) {
+    const str = JSON.stringify(msg);
+    for (const ws of sockets.values()) {
+      if (ws.readyState === ws.OPEN) ws.send(str);
+    }
+  },
+};
+
+const sim = createSim(serverCtx.broadcast);
 
 function handleMessage(pid: PlayerId, raw: RawData) {
   try {
@@ -60,11 +69,11 @@ async function main() {
 
   wss.on('connection', (ws: WebSocket) => {
     const pid: PlayerId = sim.addPlayer((id) => 'Pilot' + id, randomColor());
-    sockets.set(pid, ws);
+    serverCtx.addConnection(pid, ws);
 
     ws.on('message', (data: RawData) => handleMessage(pid, data));
     ws.on('close', () => {
-      sockets.delete(pid);
+      serverCtx.removeConnection(pid);
       sim.removePlayer(pid);
     });
 
@@ -74,8 +83,7 @@ async function main() {
   });
 
   setInterval(() => {
-    const msgs = sim.tick();
-    for (const msg of msgs) broadcast(msg);
+    sim.tick();
   }, TICK * 1000);
 }
 

@@ -145,7 +145,7 @@ function createPlayer(id: PlayerId, name: string, color: string): Player {
   };
 }
 
-export function createSim() {
+export function createSim(onBroadcast: (msg: ServerMessage) => void) {
   let nextId: PlayerId = 1;
   const players = new Map<PlayerId, Player>();
   const projectiles: Projectile[] = [];
@@ -154,9 +154,7 @@ export function createSim() {
   const fireZones: FireZone[] = [];
   let lastSnap = 0;
   let nextMeteorTime = 0;
-  const outbound: ServerMessage[] = [];
-
-  const emit = (msg: ServerMessage) => outbound.push(msg);
+  const emit = (msg: ServerMessage) => onBroadcast(msg);
 
   function stepPlayer(p: Player, dt: number) {
     const oldNormal = v.norm(p.pos);
@@ -438,9 +436,6 @@ export function createSim() {
       lastSnap = now;
     }
 
-    const msgs = outbound.slice();
-    outbound.length = 0;
-    return msgs;
   }
 
   function addPlayer(name: string | ((id: PlayerId) => string), color: string): PlayerId {

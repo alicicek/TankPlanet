@@ -41,7 +41,7 @@ const v = {
   },
 };
 
-export function createGame(root: HTMLDivElement) {
+export function startGame(canvas: HTMLCanvasElement): () => void {
   const movement: TuningConfig = {
     maxSpeed: 60, // dialed back from 120
     thrust: 90, // softer push than 180
@@ -50,30 +50,52 @@ export function createGame(root: HTMLDivElement) {
     drag: 4, // a bit more drag to cap top speed
   };
 
-  const app = root;
-  if (!app) throw new Error('No app root');
+  if (!canvas) throw new Error('No canvas provided');
+
+  const container = canvas.parentElement ?? document.body;
+  if (getComputedStyle(container).position === 'static') {
+    container.style.position = 'relative';
+  }
+
+  canvas.classList.add('game-canvas');
+  if (!canvas.style.width) canvas.style.width = '100%';
+  if (!canvas.style.height) canvas.style.height = '100%';
 
   const hud = document.createElement('div');
   hud.className = 'hud';
-  hud.innerHTML = `
-    <div class="row"><strong>Tank</strong><span id="hud-player">--</span></div>
-    <div class="row">HP<div class="bar"><div class="fill" id="hud-hp"></div></div></div>
-    <div class="weapon-ui">Weapon: <span id="hud-weapon">Blaster</span></div>
-  `;
-  app.appendChild(hud);
+  const hudRow1 = document.createElement('div');
+  hudRow1.className = 'row';
+  const hudTitle = document.createElement('strong');
+  hudTitle.textContent = 'Tank';
+  const hudPlayer = document.createElement('span');
+  hudPlayer.id = 'hud-player';
+  hudPlayer.textContent = '--';
+  hudRow1.append(hudTitle, hudPlayer);
+  const hudRow2 = document.createElement('div');
+  hudRow2.className = 'row';
+  const hpLabel = document.createElement('span');
+  hpLabel.textContent = 'HP';
+  const hpBar = document.createElement('div');
+  hpBar.className = 'bar';
+  const hpFill = document.createElement('div');
+  hpFill.className = 'fill';
+  hpFill.id = 'hud-hp';
+  hpBar.appendChild(hpFill);
+  hudRow2.append(hpLabel, hpBar);
+  const weaponUi = document.createElement('div');
+  weaponUi.className = 'weapon-ui';
+  weaponUi.textContent = 'Weapon: ';
+  const weaponSpan = document.createElement('span');
+  weaponSpan.id = 'hud-weapon';
+  weaponSpan.textContent = 'Blaster';
+  weaponUi.appendChild(weaponSpan);
+  hud.append(hudRow1, hudRow2, weaponUi);
   const killfeed = document.createElement('div');
   killfeed.className = 'killfeed';
-  app.appendChild(killfeed);
   const centerMsg = document.createElement('div');
   centerMsg.className = 'center-msg';
   centerMsg.textContent = 'Connecting...';
-  app.appendChild(centerMsg);
-
-  const canvas = document.createElement('canvas');
-  canvas.className = 'game-canvas';
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
-  app.appendChild(canvas);
+  container.append(hud, killfeed, centerMsg);
 
   const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
   engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 1.8));
@@ -254,10 +276,8 @@ export function createGame(root: HTMLDivElement) {
   }
 
   function setHUD(hp: number, nameLabel: string) {
-    const hpEl = document.querySelector<HTMLDivElement>('#hud-hp');
-    const nameEl = document.querySelector<HTMLSpanElement>('#hud-player');
-    if (hpEl) hpEl.style.width = `${Math.max(0, Math.min(100, hp))}%`;
-    if (nameEl) nameEl.textContent = nameLabel;
+    hpFill.style.width = `${Math.max(0, Math.min(100, hp))}%`;
+    hudPlayer.textContent = nameLabel;
   }
 
   function pushKillfeed(text: string) {
@@ -628,9 +648,8 @@ export function createGame(root: HTMLDivElement) {
     canvas.removeEventListener('pointerup', pointerUp);
     window.removeEventListener('resize', resize);
     window.removeEventListener('error', errorHandler);
-    // Drop DOM nodes we added so StrictMode re-mounts are clean.
-    while (app.firstChild) {
-      app.removeChild(app.firstChild);
-    }
+    if (hud.parentElement) hud.parentElement.removeChild(hud);
+    if (killfeed.parentElement) killfeed.parentElement.removeChild(killfeed);
+    if (centerMsg.parentElement) centerMsg.parentElement.removeChild(centerMsg);
   };
 }

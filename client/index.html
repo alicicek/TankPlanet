@@ -8,6 +8,9 @@
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module">
+      // Append a build id so browsers always fetch the latest bundle without manual cache clears.
+      import(/* @vite-ignore */ '/src/main.ts?build=' + __APP_VERSION__);
+    </script>
   </body>
 </html>

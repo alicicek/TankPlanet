@@ -449,19 +449,34 @@ function broadcast(data: ServerMessage) {
 
 function handleMessage(pid: PlayerId, raw: RawData) {
   try {
-    const msg = JSON.parse(raw.toString()) as ClientMessage;
-    if (msg.type === 'input') {
-      const p = players.get(pid);
-      if (!p) return;
-      p.input = {
-        seq: msg.seq ?? 0,
-        thrust: msg.thrust ?? 0,
-        turn: msg.turn ?? 0,
-        fire: !!msg.fire,
-        power: !!msg.power,
-        dt: msg.dt ?? 0,
-      };
+    const msg = JSON.parse(raw.toString());
+    if (!msg || msg.type !== 'input') return;
+
+    const numberFieldsValid =
+      typeof msg.thrust === 'number' &&
+      typeof msg.turn === 'number' &&
+      (msg.seq === undefined || typeof msg.seq === 'number') &&
+      (msg.dt === undefined || typeof msg.dt === 'number');
+    const booleanFieldsValid =
+      (msg.fire === undefined || typeof msg.fire === 'boolean') &&
+      (msg.power === undefined || typeof msg.power === 'boolean');
+
+    if (!numberFieldsValid || !booleanFieldsValid) {
+      console.warn('Ignoring malformed input message', msg);
+      return;
     }
+
+    const clamp = (v: number): -1 | 0 | 1 => (v > 0 ? 1 : v < 0 ? -1 : 0);
+    const p = players.get(pid);
+    if (!p) return;
+    p.input = {
+      seq: typeof msg.seq === 'number' ? msg.seq : 0,
+      thrust: clamp(msg.thrust),
+      turn: clamp(msg.turn),
+      fire: !!msg.fire,
+      power: !!msg.power,
+      dt: typeof msg.dt === 'number' ? msg.dt : 0,
+    };
   } catch (err) {
     console.error('bad message', err);
   }

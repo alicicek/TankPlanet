@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { RawData } from 'ws';
-import type { InputState, PlayerId, PowerupType, Vec3, Vector3Tuple, TuningConfig } from '@shared';
-import type { ClientMessage, FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared';
+import type { InputState, PlayerId, PowerupType, Vec3, Vector3Tuple, TuningConfig } from '@shared/types';
+import type { ClientMessage, FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared/protocol';
 
 // Basic vector helpers
 const v = {

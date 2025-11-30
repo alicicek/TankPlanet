@@ -37,57 +37,8 @@ const v = {
   },
 };
 
-const DEFAULT_MOVEMENT = {
-  maxSpeed: 60,
-  thrust: 90,
-  turnSpeed: 2.5,
-  turnSmooth: 7,
-  drag: 4,
-};
-
-export function createRenderer(root: HTMLDivElement) {
-  const canvas = (root.querySelector('canvas') as HTMLCanvasElement | null) ?? document.createElement('canvas');
-  if (!canvas.parentElement) root.appendChild(canvas);
-
-  canvas.classList.add('game-canvas');
-  if (!canvas.style.width) canvas.style.width = '100%';
-  if (!canvas.style.height) canvas.style.height = '100%';
-
-  const hud = document.createElement('div');
-  hud.className = 'hud';
-  const hudRow1 = document.createElement('div');
-  hudRow1.className = 'row';
-  const hudTitle = document.createElement('strong');
-  hudTitle.textContent = 'Tank';
-  const hudPlayer = document.createElement('span');
-  hudPlayer.id = 'hud-player';
-  hudPlayer.textContent = '--';
-  hudRow1.append(hudTitle, hudPlayer);
-  const hudRow2 = document.createElement('div');
-  hudRow2.className = 'row';
-  const hpLabel = document.createElement('span');
-  hpLabel.textContent = 'HP';
-  const hpBar = document.createElement('div');
-  hpBar.className = 'bar';
-  const hpFill = document.createElement('div');
-  hpFill.className = 'fill';
-  hpFill.id = 'hud-hp';
-  hpBar.appendChild(hpFill);
-  hudRow2.append(hpLabel, hpBar);
-  const weaponUi = document.createElement('div');
-  weaponUi.className = 'weapon-ui';
-  weaponUi.textContent = 'Weapon: ';
-  const weaponSpan = document.createElement('span');
-  weaponSpan.id = 'hud-weapon';
-  weaponSpan.textContent = 'Blaster';
-  weaponUi.appendChild(weaponSpan);
-  hud.append(hudRow1, hudRow2, weaponUi);
-  const killfeed = document.createElement('div');
-  killfeed.className = 'killfeed';
-  const centerMsg = document.createElement('div');
-  centerMsg.className = 'center-msg';
-  centerMsg.textContent = 'Connecting...';
-  root.append(hud, killfeed, centerMsg);
+export function createRenderer(opts: { canvas: HTMLCanvasElement; hudPlayer: HTMLElement; hpFill: HTMLElement }) {
+  const { canvas, hudPlayer, hpFill } = opts;
 
   const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
   engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 1.8));
@@ -186,23 +137,14 @@ export function createRenderer(root: HTMLDivElement) {
   const _forwardTmp = new Vector3();
   const _matTmp = new Matrix();
   const _quatTmp = new Quaternion();
-  let movement = { ...DEFAULT_MOVEMENT };
+  let movement: TuningConfig = { maxSpeed: 60, thrust: 90, turnSpeed: 2.5, turnSmooth: 7, drag: 4 };
   let getInput: (() => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) | null = null;
-  let pendingSnapshot: SnapshotMessage | null = null;
 
   const color3 = (hex: string) => Color3.FromHexString(hex);
 
   function setHUD(hp: number, nameLabel: string) {
     hudPlayer.textContent = nameLabel;
     hpFill.style.width = `${Math.max(0, Math.min(100, hp))}%`;
-  }
-
-  function pushKillfeed(text: string) {
-    const el = document.createElement('div');
-    el.className = 'item';
-    el.textContent = text;
-    killfeed.prepend(el);
-    setTimeout(() => el.remove(), 5000);
   }
 
   function createTankMesh(color: string) {
@@ -513,10 +455,8 @@ export function createRenderer(root: HTMLDivElement) {
   }
 
   function update(dt: number, snapshot: SnapshotMessage | null) {
-    const nextSnap = snapshot ?? pendingSnapshot;
-    if (nextSnap) {
-      handleSnapshot(nextSnap);
-      pendingSnapshot = null;
+    if (snapshot) {
+      handleSnapshot(snapshot);
     }
     stepLocal(dt);
     renderEntities(dt);
@@ -533,9 +473,6 @@ export function createRenderer(root: HTMLDivElement) {
       engine.stopRenderLoop();
       engine.dispose();
       window.removeEventListener('resize', handleResize);
-      if (hud.parentElement) hud.parentElement.removeChild(hud);
-      if (killfeed.parentElement) killfeed.parentElement.removeChild(killfeed);
-      if (centerMsg.parentElement) centerMsg.parentElement.removeChild(centerMsg);
     },
     setLocalPlayerId(id: number | null) {
       playerId = id;
@@ -543,21 +480,11 @@ export function createRenderer(root: HTMLDivElement) {
     setPlayerName(name: string) {
       playerName = name;
     },
-  setMovement(next: TuningConfig) {
+    setMovement(next: TuningConfig) {
       movement = next;
     },
     setInputGetter(fn: () => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) {
       getInput = fn;
-    },
-    setCenterMessage(text: string) {
-      centerMsg.textContent = text;
-    },
-    handleEvent(kind: 'kill' | 'pickup' | string, killer?: number, victim?: number) {
-      if (kind === 'kill' && killer !== undefined && victim !== undefined) pushKillfeed(`${killer} eliminated ${victim}`);
-      if (kind === 'pickup') pushKillfeed('Pickup collected');
-    },
-    queueSnapshot(msg: SnapshotMessage) {
-      pendingSnapshot = msg;
     },
   };
 }

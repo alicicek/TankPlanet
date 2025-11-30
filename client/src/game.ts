@@ -1,5 +1,6 @@
 import type { InputState, TuningConfig } from '@shared';
 import type { SnapshotMessage, ServerMessage } from '@shared';
+import { TUNING } from '@shared/config';
 import { createRenderer } from './renderer';
 import { createConnection } from './net';
 
@@ -51,13 +52,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   centerMsg.textContent = 'Connecting...';
   container.append(hud, killfeed, centerMsg);
 
-  const movement: TuningConfig = {
-    maxSpeed: 60,
-    thrust: 90,
-    turnSpeed: 2.5,
-    turnSmooth: 7,
-    drag: 4,
-  };
+  const movement: TuningConfig = { ...TUNING };
 
   const input: Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'> = { thrust: 0, turn: 0, fire: false, power: false };
   const renderer = createRenderer({ canvas, hudPlayer, hpFill });

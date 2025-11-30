@@ -1,17 +1,10 @@
 import type { InputState, PlayerId, PowerupType, Vec3, Vector3Tuple, TuningConfig } from '@shared/types';
 import type { FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared/protocol';
+import { PLANET_RADIUS, HOVER, TUNING as BASE_TUNING } from '@shared/config';
 
 // Constants
-export const PLANET_RADIUS = 30;
-const HOVER = 0.6;
 const GRAVITY = 50;
-const TUNING: Required<TuningConfig> = {
-  maxSpeed: 60, // dialed back from 120
-  thrust: 90, // softer push than 180
-  turnSpeed: 2.5,
-  turnSmooth: 12, // higher = snappier yaw acceleration, still eased
-  drag: 4, // a bit more drag to cap top speed
-};
+const TUNING: Required<TuningConfig> = BASE_TUNING;
 export const TICK = 1 / 35;
 const SNAP_RATE = 1 / 12;
 const RESPAWN_DELAY = 2.5;

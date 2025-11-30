@@ -14,10 +14,9 @@ import { UniversalCamera } from '@babylonjs/core/Cameras/universalCamera';
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { Scalar } from '@babylonjs/core/Maths/math.scalar';
+import { PLANET_RADIUS, HOVER, TUNING as DEFAULT_TUNING } from '@shared/config';
 import type { SnapshotMessage, Vec3, SnapshotPlayer, InputState, TuningConfig } from '@shared';
 
-const PLANET_RADIUS = 30;
-const HOVER = 0.6;
 const CAM_INNER_ANGLE = (10 * Math.PI) / 180;
 const CAM_OUTER_ANGLE = (35 * Math.PI) / 180;
 const CAM_FOLLOW_RATE = 3.5;
@@ -137,7 +136,7 @@ export function createRenderer(opts: { canvas: HTMLCanvasElement; hudPlayer: HTM
   const _forwardTmp = new Vector3();
   const _matTmp = new Matrix();
   const _quatTmp = new Quaternion();
-  let movement: TuningConfig = { maxSpeed: 60, thrust: 90, turnSpeed: 2.5, turnSmooth: 7, drag: 4 };
+  let movement: TuningConfig = { ...DEFAULT_TUNING };
   let getInput: (() => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) | null = null;
 
   const color3 = (hex: string) => Color3.FromHexString(hex);

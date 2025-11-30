@@ -50,7 +50,28 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const centerMsg = document.createElement('div');
   centerMsg.className = 'center-msg';
   centerMsg.textContent = 'Connecting...';
+  const devHud = document.createElement('div');
+  devHud.className = 'dev-hud';
+  devHud.style.position = 'absolute';
+  devHud.style.bottom = '12px';
+  devHud.style.right = '12px';
+  devHud.style.padding = '8px 10px';
+  devHud.style.background = 'rgba(0,0,0,0.4)';
+  devHud.style.color = '#cde2ff';
+  devHud.style.fontSize = '12px';
+  devHud.style.fontFamily = 'monospace';
+  devHud.style.borderRadius = '6px';
+  devHud.style.pointerEvents = 'none';
+  devHud.style.lineHeight = '1.5';
+  const devStatus = document.createElement('div');
+  const devSnap = document.createElement('div');
+  const devPlayers = document.createElement('div');
+  devStatus.textContent = 'Status: Connecting';
+  devSnap.textContent = 'Snapshot: --';
+  devPlayers.textContent = 'Players: --';
+  devHud.append(devStatus, devSnap, devPlayers);
   container.append(hud, killfeed, centerMsg);
+  container.appendChild(devHud);
 
   const movement: TuningConfig = { ...TUNING };
 
@@ -116,9 +137,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       renderer.setLocalPlayerId(playerId);
       centerMsg.textContent = '';
       centerMsg.style.display = 'none';
+      devStatus.textContent = 'Status: Connected';
     },
     onSnapshot: (msg: SnapshotMessage) => {
       latestSnapshot = msg;
+      const lagMs = Math.max(0, (Date.now() / 1000 - msg.time) * 1000);
+      devSnap.textContent = `Snapshot: ${lagMs.toFixed(0)} ms ago`;
+      devPlayers.textContent = `Players: ${msg.players.length}`;
     },
     onEvent: (msg: Extract<ServerMessage, { type: 'event' }>) => {
       if (msg.kind === 'kill') pushKillfeed(`${msg.killer} eliminated ${msg.victim}`);
@@ -128,14 +153,17 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       if (state === 'connecting') {
         centerMsg.style.display = '';
         centerMsg.textContent = 'Joining arena...';
+        devStatus.textContent = 'Status: Connecting';
       }
       if (state === 'disconnected') {
         centerMsg.style.display = '';
         centerMsg.textContent = 'Disconnected — retrying...';
+        devStatus.textContent = 'Status: Reconnecting';
       }
       if (state === 'error') {
         centerMsg.style.display = '';
         centerMsg.textContent = 'Unable to connect to server. Retrying...';
+        devStatus.textContent = 'Status: Error';
       }
     },
   });
@@ -166,5 +194,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (hud.parentElement) hud.parentElement.removeChild(hud);
     if (killfeed.parentElement) killfeed.parentElement.removeChild(killfeed);
     if (centerMsg.parentElement) centerMsg.parentElement.removeChild(centerMsg);
+    if (devHud.parentElement) devHud.parentElement.removeChild(devHud);
   };
 }

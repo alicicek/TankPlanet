@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "bitecs": "^0.3.40"
+  },
+  "devDependencies": {
+    "baseline-browser-mapping": "^2.8.32"
+  }
+}

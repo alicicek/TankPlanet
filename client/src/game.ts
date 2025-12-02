@@ -1,8 +1,9 @@
-import type { InputState, TuningConfig } from '@shared';
+import type { InputState, TuningConfig, SnapshotPlayer } from '@shared';
 import type { SnapshotMessage, ServerMessage } from '@shared';
 import { TUNING } from '@shared/config';
 import { createRenderer } from './renderer';
 import { createConnection } from './net';
+import { createClientEcs, syncInputToEcs, syncLocalStateToEcs } from './ecsClient';
 
 export function startGame(canvas: HTMLCanvasElement): () => void {
   if (!canvas) throw new Error('No canvas provided');
@@ -80,11 +81,13 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   renderer.setInputGetter(() => input);
   renderer.setMovement(movement);
   renderer.setPlayerName('Pilot');
+  const { world: ecsWorld, tankEntity } = createClientEcs();
 
   let destroyed = false;
   let playerId: number | null = null;
   let animFrame: number | null = null;
   let latestSnapshot: SnapshotMessage | null = null;
+  let localState: SnapshotPlayer | null = null;
 
   const keydown = (e: KeyboardEvent) => {
     if (e.key === 'ArrowUp') input.thrust = 1;
@@ -141,6 +144,9 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     },
     onSnapshot: (msg: SnapshotMessage) => {
       latestSnapshot = msg;
+      if (playerId !== null) {
+        localState = msg.players.find((p) => p.id === playerId) ?? localState;
+      }
       const lagMs = Math.max(0, (Date.now() / 1000 - msg.time) * 1000);
       devSnap.textContent = `Snapshot: ${lagMs.toFixed(0)} ms ago`;
       devPlayers.textContent = `Players: ${msg.players.length}`;
@@ -175,6 +181,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     last = now;
     const snap = latestSnapshot;
     latestSnapshot = null;
+    syncLocalStateToEcs(localState, ecsWorld, tankEntity);
+    syncInputToEcs(input, ecsWorld, tankEntity);
     renderer.update(dt, snap);
     animFrame = requestAnimationFrame(loop);
   };

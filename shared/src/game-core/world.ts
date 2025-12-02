@@ -1,11 +1,7 @@
 // shared/src/game-core/world.ts
-import { createWorld } from 'bitecs';
-
-// You can add a proper type later; for now, keep it simple.
-export type GameWorld = ReturnType<typeof createWorld>;
+// Placeholder for future ECS world factory. bitecs removed.
+export type GameWorld = unknown;
 
 export function createGameWorld(): GameWorld {
-  // Create and return a fresh ECS world instance.
-  const world = createWorld();
-  return world;
+  return {};
 }

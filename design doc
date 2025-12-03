@@ -1,0 +1,279 @@
+Here’s a lightweight design doc you can actually build from. No code, just structure + decisions.
+
+---
+
+## 1. High-Level Concept
+
+**Working title:** *Planet Tank*
+**Genre:** Fast-paced online arena (.io style), PvP, last-tank-standing
+**Platform:** Browser (desktop first, mobile later), Babylon.js client + Node server
+
+Players control customizable hover-tanks on small 3D planets. Matches are short, chaotic, and social. Meteors and natural disasters constantly reshape the battlefield. Weapons and powerups spawn dynamically, especially when meteors hit. After up to **5 rounds**, a match winner is crowned.
+
+Long-term, players can optionally engage in **skill-based wagers** using a Solana-based token (where legally allowed), but the core game must stand on its own as a fun, free, skill-driven party arena.([games.themindstudios.com][1])
+
+---
+
+## 2. Design Pillars
+
+Borrowing from .io and battle-royale design principles: simple entry, deep mastery, and fast sessions.([Playgama.com][2])
+
+1. **Jump-in simplicity**
+
+   * One click to play; no mandatory account.
+   * Minimal controls (move, aim, fire, ability).
+   * Clear UI: you always know where danger and objectives are.
+
+2. **Chaotic fairness**
+
+   * Skill decides winners, but chaos (meteors, hazards) forces adaptation.
+   * Everyone starts equal each round; advantages come from moment-to-moment decisions, not permanent stat buffs.
+
+3. **High spectacle, low friction**
+
+   * Dramatic deaths (flung off-planet, burning, disassembly).
+   * Dense VFX and audio feedback for hits, meteors, and powerups.
+   * Matches and rounds are short; downtime is tiny.
+
+4. **Social & competitive**
+
+   * Easy party play (friends in the same match).
+   * Lightweight matchmaking for random opponents.
+   * Long-term confetti: cosmetics, badges, stats, optional wagers.
+
+---
+
+## 3. Core Game Loop
+
+Following core loop best practices: define the repeated actions, goals, and rewards that drive every session.([Game Design Skills][3])
+
+**Moment-to-moment loop (seconds):**
+
+1. **Move** around the planet surface (chase cover, flank enemies).
+2. **Aim & fire** primary weapon; manage cooldowns/ammo.
+3. **React to hazards** (dodge meteors, avoid fissures, ride shockwaves).
+4. **Grab powerups** dropped from meteor impacts and crates.
+5. **Knock out opponents** by depleting HP or blasting them off the planet.
+
+**Round loop (1–3 minutes):**
+
+1. Spawn on a planet with basic weapon.
+2. Skirmish and reposition as meteors and hazards ramp up.
+3. Use powerups and terrain to secure kills / survive.
+4. Last tank standing wins the round (or highest score if time expires).
+5. Round summary → next planet (new layout/hazard pattern).
+
+**Match loop (up to 5 rounds):**
+
+1. Join match (party or quick play).
+2. Play up to 5 rounds, accumulating round wins and stats.
+3. Match winner is player with most round wins (tiebreakers by damage/kills).
+4. Earn XP, gems, cosmetic unlock progress, and (if enabled) wager results.
+5. Return to lobby or re-queue.
+
+---
+
+## 4. Match & Round Structure
+
+**Match size:** Target 4–8 players (tuned later based on performance and chaos level).
+
+**Round start:**
+
+* Short **3–5s countdown**. Everyone sees initial spawn positions.
+* Planets and hazard scripts are pre-selected (e.g., “Meteor Swarm”, “Quake World”, “Solar Flare”).
+
+**Round duration:**
+
+* Soft cap: 90–150 seconds.
+* If multiple players remain at time cap, sudden-death modifier kicks in:
+
+  * Increased meteor frequency
+  * Shrinking safe zones or rising lava band
+  * Higher knockback force
+
+**Win conditions:**
+
+* Primary: last tank alive.
+* Secondary (time up): player with highest score (kills, damage, survival time).
+
+**Match end:**
+
+* First to **3 round wins** *or* most wins after 5 rounds.
+* Show podium: 1st, 2nd, 3rd with cosmetic flex and stats.
+* If wagers enabled, display results and payouts (non-obnoxively).
+
+---
+
+## 5. Player Actions & Controls
+
+**Core actions:**
+
+* **Move**: W + A/D  or up + left/right arrow; tank sticks to planet surface.
+* **Aim**: Space to shoot; slight aim assist to make game less frustrating to shoot players
+* **Use ability / powerup**: F button
+
+As with classic .io titles, controls remain simple and readable to support accessibility and low onboarding friction.([Playgama.com][2])
+
+---
+
+## 6. Hazards & Dynamic Events
+
+Hazards create unpredictability and push players together, similar to shrinking circles and environmental threats in battle royales.([Game Design Skills][4])
+
+**Meteor Showers**
+
+* **Telegraph**: visible entry streak + ground indicator before impact.
+* **Impact**:
+
+  * Radial damage and knockback.
+  * Temporary crater or rough terrain patch.
+  * Spawns 1–3 powerups (weapon drops, buffs, utility items).
+* **Frequency**: increases over time to ensure round resolution.
+
+**Natural Disasters (planet variants)**
+
+Each planet can have a signature disaster pattern:
+
+* **Quakes**: periodic tremors that alter traction and aim; small fissures that open and close.
+* **Solar Flares**: periodic waves that sweep across surface; tanks must hide behind geometry to avoid burn damage.
+* **Magnetic Storms**: briefly invert controls or distort projectiles in certain zones.
+* **Wind Jets / Geysers**: launch tanks into the air, great for stunt kills or risky escapes.
+
+Hazards must be **server-authoritative** and deterministic per match seed so clients stay in sync and players feel the system is fair.
+
+---
+
+## 7. Weapons & Powerups
+
+Weapons and powerups follow battle-arena and BR design: clear roles, tradeoffs, and rarity tiers.([Game Design Skills][4])
+
+**Baseline loadout**
+
+* Every tank spawns with a **reliable mid-range cannon**:
+
+  * Medium projectile speed, moderate damage, moderate knockback.
+  * Predictable to keep baseline skill expression high.
+
+**Weapon pickups**
+
+Examples:
+
+* **Rail Shot** – high damage, long charge, long cooldown; great for sniping off ledges.
+* **Scatter Blast** – short range, wide spread, huge knockback, great for edge control.
+* **Plasma Arc** – continuous beam that ramps damage over time while tracking.
+* **Gravity Grenades** – AOE singularity then explosion; good for displacing groups.
+
+Each weapon has:
+
+* Clear visual identity (colors, muzzle VFX, projectile shape).
+* Simple stats: damage, knockback, range, projectile speed, ammo / charge.
+
+**Powerups / temporary buffs**
+
+* **Overshield** – temporary extra HP or one free “save” from lethal.
+* **Turbo Treads** – speed + turning boost, encouraging aggressive flanks.
+* **Impact Boost** – dramatically increased knockback on hits for a short time.
+* **Meteor Call** (rare) – marks an area where a meteor will land shortly, letting players “call in” a hazard.
+
+Powerups are spawned primarily by meteor impacts and hazard events to keep the battlefield dynamic and reward risk-taking near danger zones.
+
+---
+
+## 8. Tanks, Progression & Cosmetics
+
+To keep things fair, **power progression is mostly cosmetic**; real-money/crypto never directly buys combat power. This aligns with best practices in competitive and skill-based games.([xda.io][5])
+
+**Tank archetypes (optional)**
+
+Lightweight initial version: purely cosmetic differences only. Later, introduce small, side-grade style variations, e.g.:
+
+* **Balanced** – default stats.
+* **Bruiser** – more mass/HP, slower acceleration.
+* **Skirmisher** – faster, less HP/knockback resistance.
+
+All archetypes must remain viable; no pay-to-win.
+
+**Cosmetics**
+
+* **Tank skins** – body materials, decals, themed shapes.
+* **Trails** – exhaust colors/shapes (plasma streak, pixel dust, smoke).
+* **Death effects** – implosion, burn-up, disassembly, mini supernova.
+* **Emblems / banners** – small icon next to nameplate, on tank hull.
+* **Victory animations** – short podium animations for 1st place.
+
+**Progression**
+
+* **Account level / XP** – gained from matches.
+* **Gems (soft currency)** – earned via play, used for cosmetics.
+* **Seasonal rewards** – optional seasons with unique cosmetics and titles.
+
+---
+
+## 9. Matchmaking & Game Modes
+
+.io games thrive on low friction: players should get into a match quickly, with skill-based matchmaking gradually layered on top.([Playgama.com][2])
+
+**Core modes**
+
+1. **Quick Play (Random FFA)**
+
+   * Solo queue; fills a match with available players.
+   * Very short lobby times prioritized over perfect MMR.
+
+2. **Party Play**
+
+   * Create or join a party using invite code or link.
+   * Party is placed into a match together (same lobby, potentially same or opposing teams if you add team modes later).
+
+3. **(Future) Ranked / Wagered Mode**
+
+   * Only available in allowed regions and after KYC / age checks (outside scope of this doc, guided by local regulation).([games.themindstudios.com][1])
+
+**Matchmaking model**
+
+* **Casual MMR**: hidden rating adjusts based on performance (wins, placement, damage).
+* Matchmaker tries to keep average rating within a band while still prioritizing quick matches.
+* For parties, matchmaker uses highest member rating as baseline.
+
+---
+
+## 10. Wagers & Economy (High-Level)
+
+This section is conceptual only; actual implementation must follow jurisdiction-specific regulation and legal counsel for skill-based, real-money games.([games.themindstudios.com][1])
+
+**Currencies**
+
+* **Solana-based token / SOL** – real-value currency handled on-chain.
+* **Gems** – off-chain soft currency used for cosmetics; cannot be cashed out.
+
+**Basic flow idea**
+
+1. Player **deposits** SOL or the game token into an on-chain program / escrow.
+2. Backend reflects an internal “wager balance”.
+3. Player opts into a **skill-based wagered match**:
+
+   * Stakes are agreed (e.g., X tokens per player).
+   * Only players with sufficient balance can queue.
+4. After match, winner(s) receive the pot (minus fee, if any).
+5. Player can **convert token → gems** (one-way or with a penalty) or **withdraw** back to their own wallet.
+
+Constraints:
+
+* No pay-to-win; wagers influence only stakes, not in-match stats.
+* Robust anti-cheat and authoritative server architecture to preserve fairness.([gabrielgambetta.com][6])
+
+---
+
+## 11. Session Structure & Meta
+
+**Average session:** 10–20 minutes (2–3 matches).
+
+Each session, players should:
+
+* Play several intense matches.
+* Feel progression: XP gain, gem income, cosmetic unlocks ticking forward.
+* See concrete goals:
+
+  * Short-term: “Win a round”, “Get 3 meteor kills”.
+  * Mid-term: “Unlock next skin tier”, “Complete daily mission”.
+  * Long-term: “Climb ladder / title”, “Collect a full cosmetic set”.([Game Design Skills][3])

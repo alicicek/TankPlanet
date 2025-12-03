@@ -55,22 +55,23 @@ export function createRenderer(opts: { canvas: HTMLCanvasElement; hudPlayer: HTM
   scene.activeCamera = camera;
 
   const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), scene);
-  hemi.diffuse = new Color3(0.96, 0.96, 1);
-  hemi.groundColor = new Color3(0.1, 0.07, 0.05);
-  hemi.intensity = 0.85;
+  hemi.diffuse = new Color3(0.9, 0.9, 1);
+  hemi.groundColor = new Color3(0.08, 0.06, 0.05);
+  hemi.intensity = 0.7; // softer ambient to reduce washout
   const dir = new DirectionalLight('dir', new Vector3(-0.3, -1, -0.2), scene);
   dir.position = new Vector3(25, 40, 12);
-  dir.intensity = 2.4;
+  dir.intensity = 1.6; // lower key light to preserve color contrast
+  dir.diffuse = new Color3(1, 0.95, 0.9);
   const rim = new DirectionalLight('rim', new Vector3(0.4, 0.2, 0.12), scene);
   rim.position = new Vector3(-20, -10, -5);
-  rim.intensity = 0.6;
+  rim.intensity = 0.4; // reduce rim so highlights don’t flatten colors
 
   const pipeline = new DefaultRenderingPipeline('default', true, scene, [camera]);
   pipeline.bloomEnabled = true;
-  pipeline.bloomThreshold = 1.0;
-  pipeline.bloomWeight = 0.12;
-  pipeline.bloomKernel = 32;
-  pipeline.bloomScale = 0.4;
+  pipeline.bloomThreshold = 1.15; // raise threshold so only very bright pixels bloom
+  pipeline.bloomWeight = 0.08; // lighter bloom to avoid color bleed
+  pipeline.bloomKernel = 24;
+  pipeline.bloomScale = 0.3;
 
   const glow = new GlowLayer('glow', scene, { mainTextureSamples: 2 });
   glow.intensity = 0.25;

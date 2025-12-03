@@ -74,12 +74,19 @@ export interface MeteorImpactFireEvent {
   fire: FireZoneSnapshot;
 }
 
+export interface RoundEndEventMessage {
+  type: 'event';
+  kind: 'roundEnd';
+  winner: PlayerId | null; // null if tie or no winner
+}
+
 export type EventMessage =
   | KillEventMessage
   | RespawnEventMessage
   | PickupEventMessage
   | MeteorImpactPickupEvent
-  | MeteorImpactFireEvent;
+  | MeteorImpactFireEvent
+  | RoundEndEventMessage;
 
 export interface WelcomeMessage {
   type: 'welcome';

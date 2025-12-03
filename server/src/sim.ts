@@ -435,6 +435,20 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     }
 
     if (match.timeLeft <= 0) {
+      // Announce round end before resetting scores/state
+      let winner: PlayerId | null = null;
+      let bestScore = -Infinity;
+      for (const p of players.values()) {
+        if (p.score > bestScore) {
+          bestScore = p.score;
+          winner = p.id;
+        } else if (p.score === bestScore) {
+          winner = null; // tie
+        }
+      }
+      if (players.size === 0) winner = null;
+      emit({ type: 'event', kind: 'roundEnd', winner });
+
       // Reset all players
       for (const p of players.values()) {
         const dir = preferredSpawnPoint(1);

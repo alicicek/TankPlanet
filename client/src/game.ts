@@ -160,6 +160,19 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     onEvent: (msg: Extract<ServerMessage, { type: 'event' }>) => {
       if (msg.kind === 'kill') pushKillfeed(`${msg.killer} eliminated ${msg.victim}`);
       if (msg.kind === 'pickup') pushKillfeed('Pickup collected');
+      if (msg.kind === 'roundEnd') {
+        centerMsg.style.display = '';
+        if (msg.winner != null) {
+          centerMsg.textContent = `Round over! Winner: Player #${msg.winner}`;
+        } else {
+          centerMsg.textContent = "Round over! It's a tie.";
+        }
+        setTimeout(() => {
+          if (centerMsg.textContent?.startsWith('Round over!')) {
+            centerMsg.style.display = 'none';
+          }
+        }, 4000);
+      }
     },
     onStateChange: (state) => {
       if (state === 'connecting') {

@@ -36,8 +36,13 @@ const v = {
   },
 };
 
-export function createRenderer(opts: { canvas: HTMLCanvasElement; hudPlayer: HTMLElement; hpFill: HTMLElement }) {
-  const { canvas, hudPlayer, hpFill } = opts;
+export function createRenderer(opts: {
+  canvas: HTMLCanvasElement;
+  hudPlayer: HTMLElement;
+  hpFill: HTMLElement;
+  hudScore: HTMLElement;
+}) {
+  const { canvas, hudPlayer, hpFill, hudScore } = opts;
 
   const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
   engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 1.8));
@@ -142,9 +147,10 @@ export function createRenderer(opts: { canvas: HTMLCanvasElement; hudPlayer: HTM
 
   const color3 = (hex: string) => Color3.FromHexString(hex);
 
-  function setHUD(hp: number, nameLabel: string) {
+  function setHUD(hp: number, nameLabel: string, score: number) {
     hudPlayer.textContent = nameLabel;
     hpFill.style.width = `${Math.max(0, Math.min(100, hp))}%`;
+    hudScore.textContent = `${Math.round(score)}`;
   }
 
   function createTankMesh(color: string) {
@@ -298,7 +304,7 @@ export function createRenderer(opts: { canvas: HTMLCanvasElement; hudPlayer: HTM
   }
 
   function renderEntities(dt: number) {
-    if (lastSnapshotTime > 0) setHUD(localState?.hp ?? 0, `${playerName} #${playerId ?? '--'}`);
+    if (lastSnapshotTime > 0) setHUD(localState?.hp ?? 0, `${playerName} #${playerId ?? '--'}`, localState?.score ?? 0);
 
     const lerp = Math.min(1, 8 * dt);
     for (const [id, state] of renderStates) {

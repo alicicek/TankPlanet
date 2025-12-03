@@ -38,6 +38,14 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   hpFill.id = 'hud-hp';
   hpBar.appendChild(hpFill);
   hudRow2.append(hpLabel, hpBar);
+  const hudRow3 = document.createElement('div');
+  hudRow3.className = 'row';
+  const scoreLabel = document.createElement('span');
+  scoreLabel.textContent = 'Score';
+  const hudScore = document.createElement('span');
+  hudScore.id = 'hud-score';
+  hudScore.textContent = '0';
+  hudRow3.append(scoreLabel, hudScore);
   const weaponUi = document.createElement('div');
   weaponUi.className = 'weapon-ui';
   weaponUi.textContent = 'Weapon: ';
@@ -45,7 +53,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   weaponSpan.id = 'hud-weapon';
   weaponSpan.textContent = 'Blaster';
   weaponUi.appendChild(weaponSpan);
-  hud.append(hudRow1, hudRow2, weaponUi);
+  hud.append(hudRow1, hudRow2, hudRow3, weaponUi);
   const killfeed = document.createElement('div');
   killfeed.className = 'killfeed';
   const centerMsg = document.createElement('div');
@@ -79,7 +87,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const movement: TuningConfig = { ...TUNING };
 
   const input: Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'> = { thrust: 0, turn: 0, fire: false, power: false };
-  const renderer = createRenderer({ canvas, hudPlayer, hpFill });
+  const renderer = createRenderer({ canvas, hudPlayer, hpFill, hudScore });
   renderer.setInputGetter(() => input);
   renderer.setMovement(movement);
   renderer.setPlayerName('Pilot');

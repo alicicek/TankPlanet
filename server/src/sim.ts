@@ -1,4 +1,4 @@
-import type { InputState, PlayerId, PowerupType, Vec3, Vector3Tuple, TuningConfig } from '@shared/types';
+import type { InputState, MatchInfo, PlayerId, PowerupType, Vec3, Vector3Tuple, TuningConfig } from '@shared/types';
 import type { FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared/protocol';
 import { PLANET_RADIUS, HOVER, TUNING as BASE_TUNING } from '@shared/config';
 
@@ -13,6 +13,12 @@ const DEFAULT_DAMAGE = 25;
 const PLAYER_RADIUS = 1.2;
 const FIRE_DPS = 15;
 const FIRE_DURATION = 7;
+
+let match: MatchInfo = {
+  state: 'active',
+  timeLeft: 999,
+  scoreCap: 800,
+};
 
 // Basic vector helpers
 const v = {
@@ -403,6 +409,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
         radius: f.radius,
         ttl: Math.max(0, f.duration - (now - f.start)),
       })),
+      match,
     };
     emit(payload);
   }
@@ -453,7 +460,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     return {
       type: 'welcome',
       playerId: pid,
-      match: { state: 'active', timeLeft: 999, scoreCap: 800 },
+      match,
       planet: { radius: PLANET_RADIUS },
       tuning: TUNING,
     };

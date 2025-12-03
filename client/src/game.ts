@@ -67,10 +67,12 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const devStatus = document.createElement('div');
   const devSnap = document.createElement('div');
   const devPlayers = document.createElement('div');
+  const devMatch = document.createElement('div');
   devStatus.textContent = 'Status: Connecting';
   devSnap.textContent = 'Snapshot: --';
   devPlayers.textContent = 'Players: --';
-  devHud.append(devStatus, devSnap, devPlayers);
+  devMatch.textContent = 'Match: --';
+  devHud.append(devStatus, devSnap, devPlayers, devMatch);
   container.append(hud, killfeed, centerMsg);
   container.appendChild(devHud);
 
@@ -150,6 +152,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       const lagMs = Math.max(0, (Date.now() / 1000 - msg.time) * 1000);
       devSnap.textContent = `Snapshot: ${lagMs.toFixed(0)} ms ago`;
       devPlayers.textContent = `Players: ${msg.players.length}`;
+      if (msg.match) {
+        const seconds = Math.max(0, Math.floor(msg.match.timeLeft));
+        devMatch.textContent = `Match: ${msg.match.state} | ${seconds}s left | cap ${msg.match.scoreCap}`;
+      }
     },
     onEvent: (msg: Extract<ServerMessage, { type: 'event' }>) => {
       if (msg.kind === 'kill') pushKillfeed(`${msg.killer} eliminated ${msg.victim}`);

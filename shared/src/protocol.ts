@@ -35,6 +35,7 @@ export interface SnapshotMessage {
   meteors: MeteorSnapshot[];
   pickups: PickupSnapshot[];
   fire: FireZoneSnapshot[];
+  match?: MatchInfo;
 }
 
 export interface KillEventMessage {

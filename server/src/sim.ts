@@ -13,10 +13,11 @@ const DEFAULT_DAMAGE = 25;
 const PLAYER_RADIUS = 1.2;
 const FIRE_DPS = 15;
 const FIRE_DURATION = 7;
+const ROUND_DURATION = 90; // seconds, can tweak later
 
 let match: MatchInfo = {
   state: 'active',
-  timeLeft: 999,
+  timeLeft: ROUND_DURATION,
   scoreCap: 800,
 };
 
@@ -153,6 +154,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
   const fireZones: FireZone[] = [];
   let lastSnap = 0;
   let nextMeteorTime = 0;
+  let roundEndsAt = Date.now() / 1000 + ROUND_DURATION;
   const emit = (msg: ServerMessage) => onBroadcast(msg);
 
   function stepPlayer(p: Player, dt: number) {
@@ -416,6 +418,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
 
   function tick() {
     const now = Date.now() / 1000;
+    match.timeLeft = Math.max(0, roundEndsAt - now);
     for (const p of players.values()) {
       if (p.alive) stepPlayer(p, TICK);
       else respawnIfNeeded(p);
@@ -429,6 +432,38 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     if (now >= nextMeteorTime) {
       spawnMeteor(now);
       nextMeteorTime = now + rand(6, 8);
+    }
+
+    if (match.timeLeft <= 0) {
+      // Reset all players
+      for (const p of players.values()) {
+        const dir = preferredSpawnPoint(1);
+        p.pos = v.scale(v.norm(dir), PLANET_RADIUS + HOVER);
+        p.vel = { x: 0, y: 0, z: 0 };
+        const normal = v.norm(p.pos);
+        const ref = Math.abs(normal.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+        p.heading = v.norm({
+          x: normal.y * ref.z - normal.z * ref.y,
+          y: normal.z * ref.x - normal.x * ref.z,
+          z: normal.x * ref.y - normal.y * ref.x,
+        });
+        p.hp = 100;
+        p.yaw = 0;
+        p.yawVel = 0;
+        p.alive = true;
+        p.respawnAt = 0;
+        p.lastFire = now;
+        p.score = 0; // reset score each round for now
+        p.contrib.clear();
+      }
+      // Clear hazards
+      meteors.length = 0;
+      pickups.length = 0;
+      fireZones.length = 0;
+      // Restart round timer
+      match.state = 'active';
+      roundEndsAt = now + ROUND_DURATION;
+      match.timeLeft = Math.max(0, roundEndsAt - now);
     }
 
     if (now - lastSnap >= SNAP_RATE) {

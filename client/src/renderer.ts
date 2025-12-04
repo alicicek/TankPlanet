@@ -147,10 +147,10 @@ export function createRenderer(opts: {
 
   const color3 = (hex: string) => Color3.FromHexString(hex);
 
-  function setHUD(hp: number, nameLabel: string, score: number) {
+  function setHUD(hp: number, score: number, nameLabel: string) {
     hudPlayer.textContent = nameLabel;
     hpFill.style.width = `${Math.max(0, Math.min(100, hp))}%`;
-    hudScore.textContent = `${Math.round(score)}`;
+    hudScore.textContent = String(score);
   }
 
   function createTankMesh(color: string) {
@@ -304,7 +304,9 @@ export function createRenderer(opts: {
   }
 
   function renderEntities(dt: number) {
-    if (lastSnapshotTime > 0) setHUD(localState?.hp ?? 0, `${playerName} #${playerId ?? '--'}`, localState?.score ?? 0);
+    if (lastSnapshotTime > 0) {
+      setHUD(localState?.hp ?? 0, localState?.score ?? 0, `${playerName} #${playerId ?? '--'}`);
+    }
 
     const lerp = Math.min(1, 8 * dt);
     for (const [id, state] of renderStates) {

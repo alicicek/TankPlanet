@@ -101,6 +101,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   renderer.setInputGetter(() => getActiveInput());
   renderer.setMovement(movement);
   renderer.setPlayerName('Pilot');
+  renderer.setOnLocalDeath((label: string) => {
+    centerMsg.style.display = '';
+    centerMsg.textContent = label;
+  });
+  renderer.setOnLocalRespawn(() => {
+    if (centerMsg.textContent?.startsWith('You were destroyed')) {
+      centerMsg.style.display = 'none';
+    }
+  });
   const { world: ecsWorld, tankEntity } = createClientEcs();
 
   let destroyed = false;

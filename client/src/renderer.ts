@@ -147,6 +147,14 @@ export function createRenderer(opts: {
   let getInput: (() => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) | null = null;
   const FIRE_FLASH_DURATION = 0.12;
   let fireFlash = 0;
+  const DAMAGE_FLASH_DURATION = 0.25;
+  const DAMAGE_SHAKE_DURATION = 0.22;
+  let damageFlash = 0;
+  let damageShakeTime = 0;
+  let prevHp = 100;
+  let wasAlive = true;
+  let onLocalDeath: ((message: string) => void) | null = null;
+  let onLocalRespawn: (() => void) | null = null;
 
   const color3 = (hex: string) => Color3.FromHexString(hex);
 
@@ -158,6 +166,12 @@ export function createRenderer(opts: {
 
   function setFireFlash() {
     fireFlash = FIRE_FLASH_DURATION;
+  }
+
+  function triggerDamageEffect(amountLost: number) {
+    if (amountLost <= 0) return;
+    damageFlash = DAMAGE_FLASH_DURATION;
+    damageShakeTime = DAMAGE_SHAKE_DURATION;
   }
 
   function createTankMesh(color: string) {
@@ -347,20 +361,33 @@ export function createRenderer(opts: {
     }
   }
 
-  function applyFireFlash(dt: number) {
-    if (fireFlash > 0) {
-      fireFlash = Math.max(0, fireFlash - dt);
-      const t = fireFlash / FIRE_FLASH_DURATION;
-      const boost = 0.35 * t;
-      scene.clearColor.copyFromFloats(
-        Math.min(1, baseClearColor.r + boost),
-        Math.min(1, baseClearColor.g + boost),
-        Math.min(1, baseClearColor.b + boost),
-        baseClearColor.a
-      );
-    } else {
-      scene.clearColor.copyFrom(baseClearColor);
-    }
+  function applyScreenEffects(dt: number) {
+    if (fireFlash > 0) fireFlash = Math.max(0, fireFlash - dt);
+    if (damageFlash > 0) damageFlash = Math.max(0, damageFlash - dt);
+
+    const fireT = fireFlash / FIRE_FLASH_DURATION;
+    const dmgT = damageFlash / DAMAGE_FLASH_DURATION;
+    const fireBoost = 0.35 * fireT;
+    const dmgBoost = 0.55 * dmgT;
+
+    const r = Math.min(1, baseClearColor.r + fireBoost + dmgBoost);
+    const g = Math.min(1, baseClearColor.g + fireBoost * 0.9 + dmgBoost * 0.15);
+    const b = Math.min(1, baseClearColor.b + fireBoost * 0.9 + dmgBoost * 0.1);
+    scene.clearColor.copyFromFloats(r, g, b, baseClearColor.a);
+  }
+
+  function applyDamageShake(dt: number) {
+    if (damageShakeTime <= 0) return;
+    damageShakeTime = Math.max(0, damageShakeTime - dt);
+    const t = damageShakeTime / DAMAGE_SHAKE_DURATION;
+    const amp = 0.6 * t;
+    const shake = new Vector3(
+      (Math.random() - 0.5) * amp,
+      (Math.random() - 0.5) * amp,
+      (Math.random() - 0.5) * amp
+    );
+    camera.position.addInPlace(shake);
+    camera.setTarget(camera.getTarget().add(shake));
   }
 
   function handleSnapshot(msg: SnapshotMessage) {
@@ -371,8 +398,13 @@ export function createRenderer(opts: {
     }
     for (const state of msg.players) {
       if (state.id === playerId) {
-        if (!localState) localState = { ...state };
-        else {
+        if (!localState) {
+          localState = { ...state };
+          prevHp = state.hp;
+          wasAlive = state.alive;
+        } else {
+          const previousHp = prevHp;
+          const prevAlive = wasAlive;
           const errX = state.pos[0] - localState.pos[0];
           const errY = state.pos[1] - localState.pos[1];
           const errZ = state.pos[2] - localState.pos[2];
@@ -403,6 +435,11 @@ export function createRenderer(opts: {
           localState.hp = state.hp;
           localState.score = state.score;
           localState.alive = state.alive;
+          if (state.hp < previousHp) triggerDamageEffect(previousHp - state.hp);
+          if (prevAlive && !state.alive) onLocalDeath?.('You were destroyed! Respawning...');
+          if (!prevAlive && state.alive) onLocalRespawn?.();
+          prevHp = state.hp;
+          wasAlive = state.alive;
         }
       }
       let mesh = tankMeshes.get(state.id);
@@ -492,7 +529,8 @@ export function createRenderer(opts: {
     stepLocal(dt);
     renderEntities(dt);
     updateCameraTarget(dt);
-    applyFireFlash(dt);
+    applyDamageShake(dt);
+    applyScreenEffects(dt);
     scene.render();
   }
 
@@ -520,6 +558,12 @@ export function createRenderer(opts: {
     },
     triggerFireFlash() {
       setFireFlash();
+    },
+    setOnLocalDeath(fn: (message: string) => void) {
+      onLocalDeath = fn;
+    },
+    setOnLocalRespawn(fn: () => void) {
+      onLocalRespawn = fn;
     },
   };
 }

@@ -38,6 +38,8 @@ export interface MatchInfo {
   state: MatchState;
   timeLeft: number;
   scoreCap: number;
+  round: number;
+  roundTime?: number;
 }
 
 export interface TuningConfig {

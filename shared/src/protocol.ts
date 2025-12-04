@@ -78,6 +78,8 @@ export interface RoundEndEventMessage {
   type: 'event';
   kind: 'roundEnd';
   winner: PlayerId | null; // null if tie or no winner
+  round: number;
+  scores: { playerId: PlayerId; score: number }[];
 }
 
 export type EventMessage =

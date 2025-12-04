@@ -14,11 +14,14 @@ const PLAYER_RADIUS = 1.2;
 const FIRE_DPS = 15;
 const FIRE_DURATION = 7;
 const ROUND_DURATION = 90; // seconds, can tweak later
+const SCORE_CAP = 800;
 
 let match: MatchInfo = {
   state: 'active',
   timeLeft: ROUND_DURATION,
-  scoreCap: 800,
+  scoreCap: SCORE_CAP,
+  round: 1,
+  roundTime: 0,
 };
 
 // Basic vector helpers
@@ -154,6 +157,8 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
   const fireZones: FireZone[] = [];
   let lastSnap = 0;
   let nextMeteorTime = 0;
+  let round = 1;
+  let roundStartTime = Date.now() / 1000;
   let roundEndsAt = Date.now() / 1000 + ROUND_DURATION;
   const emit = (msg: ServerMessage) => onBroadcast(msg);
 
@@ -389,6 +394,63 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     }
   }
 
+  function collectRoundScores() {
+    let winner: PlayerId | null = null;
+    let bestScore = -Infinity;
+    let tie = false;
+    for (const p of players.values()) {
+      if (p.score > bestScore) {
+        bestScore = p.score;
+        winner = p.id;
+        tie = false;
+      } else if (p.score === bestScore) {
+        tie = true;
+      }
+    }
+    if (tie) winner = null;
+    const scores = Array.from(players.values()).map((p) => ({ playerId: p.id, score: p.score }));
+    return { winner, bestScore, scores };
+  }
+
+  function resetPlayersForNewRound(now: number) {
+    for (const p of players.values()) {
+      const dir = preferredSpawnPoint(1);
+      p.pos = v.scale(v.norm(dir), PLANET_RADIUS + HOVER);
+      p.vel = { x: 0, y: 0, z: 0 };
+      const normal = v.norm(p.pos);
+      const ref = Math.abs(normal.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+      p.heading = v.norm({
+        x: normal.y * ref.z - normal.z * ref.y,
+        y: normal.z * ref.x - normal.x * ref.z,
+        z: normal.x * ref.y - normal.y * ref.x,
+      });
+      p.hp = 100;
+      p.yaw = 0;
+      p.yawVel = 0;
+      p.alive = true;
+      p.respawnAt = 0;
+      p.lastFire = now;
+      p.score = 0;
+      p.contrib.clear();
+    }
+  }
+
+  function completeRound(winner: PlayerId | null, scores: { playerId: PlayerId; score: number }[], now: number) {
+    emit({ type: 'event', kind: 'roundEnd', winner, round, scores });
+    resetPlayersForNewRound(now);
+    meteors.length = 0;
+    pickups.length = 0;
+    fireZones.length = 0;
+    match.state = 'active';
+    round += 1;
+    roundStartTime = now;
+    roundEndsAt = now + ROUND_DURATION;
+    nextMeteorTime = now + rand(6, 8);
+    match.round = round;
+    match.roundTime = 0;
+    match.timeLeft = Math.max(0, roundEndsAt - now);
+  }
+
   function sendSnapshots(now: number) {
     const payload: SnapshotMessage = {
       type: 'snap',
@@ -418,7 +480,10 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
 
   function tick() {
     const now = Date.now() / 1000;
+    match.round = round;
+    match.scoreCap = SCORE_CAP;
     match.timeLeft = Math.max(0, roundEndsAt - now);
+    match.roundTime = Math.max(0, now - roundStartTime);
     for (const p of players.values()) {
       if (p.alive) stepPlayer(p, TICK);
       else respawnIfNeeded(p);
@@ -429,55 +494,19 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     stepFireZones(now, TICK);
     stepPickups(now);
 
-    if (now >= nextMeteorTime) {
-      spawnMeteor(now);
-      nextMeteorTime = now + rand(6, 8);
+    const roundScores = collectRoundScores();
+    let roundEnded = false;
+    if (roundScores.bestScore >= SCORE_CAP) {
+      completeRound(roundScores.winner, roundScores.scores, now);
+      roundEnded = true;
+    } else if (match.timeLeft <= 0) {
+      completeRound(roundScores.winner, roundScores.scores, now);
+      roundEnded = true;
     }
 
-    if (match.timeLeft <= 0) {
-      // Announce round end before resetting scores/state
-      let winner: PlayerId | null = null;
-      let bestScore = -Infinity;
-      for (const p of players.values()) {
-        if (p.score > bestScore) {
-          bestScore = p.score;
-          winner = p.id;
-        } else if (p.score === bestScore) {
-          winner = null; // tie
-        }
-      }
-      if (players.size === 0) winner = null;
-      emit({ type: 'event', kind: 'roundEnd', winner });
-
-      // Reset all players
-      for (const p of players.values()) {
-        const dir = preferredSpawnPoint(1);
-        p.pos = v.scale(v.norm(dir), PLANET_RADIUS + HOVER);
-        p.vel = { x: 0, y: 0, z: 0 };
-        const normal = v.norm(p.pos);
-        const ref = Math.abs(normal.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
-        p.heading = v.norm({
-          x: normal.y * ref.z - normal.z * ref.y,
-          y: normal.z * ref.x - normal.x * ref.z,
-          z: normal.x * ref.y - normal.y * ref.x,
-        });
-        p.hp = 100;
-        p.yaw = 0;
-        p.yawVel = 0;
-        p.alive = true;
-        p.respawnAt = 0;
-        p.lastFire = now;
-        p.score = 0; // reset score each round for now
-        p.contrib.clear();
-      }
-      // Clear hazards
-      meteors.length = 0;
-      pickups.length = 0;
-      fireZones.length = 0;
-      // Restart round timer
-      match.state = 'active';
-      roundEndsAt = now + ROUND_DURATION;
-      match.timeLeft = Math.max(0, roundEndsAt - now);
+    if (!roundEnded && now >= nextMeteorTime) {
+      spawnMeteor(now);
+      nextMeteorTime = now + rand(6, 8);
     }
 
     if (now - lastSnap >= SNAP_RATE) {

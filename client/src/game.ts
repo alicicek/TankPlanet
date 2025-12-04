@@ -87,8 +87,15 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   const movement: TuningConfig = { ...TUNING };
 
   const input: Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'> = { thrust: 0, turn: 0, fire: false, power: false };
+  let roundFrozenUntil = 0;
+  const getActiveInput = () => {
+    if (performance.now() < roundFrozenUntil) {
+      return { thrust: 0, turn: 0, fire: false, power: false };
+    }
+    return input;
+  };
   const renderer = createRenderer({ canvas, hudPlayer, hpFill, hudScore });
-  renderer.setInputGetter(() => input);
+  renderer.setInputGetter(() => getActiveInput());
   renderer.setMovement(movement);
   renderer.setPlayerName('Pilot');
   const { world: ecsWorld, tankEntity } = createClientEcs();
@@ -135,7 +142,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   window.addEventListener('error', errorHandler);
 
   const connection = createConnection({
-    getInput: () => input,
+    getInput: () => getActiveInput(),
     getPlayerName: () => 'Pilot',
     onWelcome: (data) => {
       if (data.tuning) {
@@ -169,17 +176,19 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
       if (msg.kind === 'kill') pushKillfeed(`${msg.killer} eliminated ${msg.victim}`);
       if (msg.kind === 'pickup') pushKillfeed('Pickup collected');
       if (msg.kind === 'roundEnd') {
+        const winnerScore = msg.winner != null ? msg.scores.find((s) => s.playerId === msg.winner)?.score ?? 0 : 0;
+        const label =
+          msg.winner != null
+            ? `Round ${msg.round} over — Player #${msg.winner} wins with ${winnerScore} points`
+            : `Round ${msg.round} over — tie`;
+        roundFrozenUntil = performance.now() + 2500;
         centerMsg.style.display = '';
-        if (msg.winner != null) {
-          centerMsg.textContent = `Round over! Winner: Player #${msg.winner}`;
-        } else {
-          centerMsg.textContent = "Round over! It's a tie.";
-        }
+        centerMsg.textContent = label;
         setTimeout(() => {
-          if (centerMsg.textContent?.startsWith('Round over!')) {
+          if (performance.now() >= roundFrozenUntil) {
             centerMsg.style.display = 'none';
           }
-        }, 4000);
+        }, 2600);
       }
     },
     onStateChange: (state) => {
@@ -209,7 +218,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     const snap = latestSnapshot;
     latestSnapshot = null;
     syncLocalStateToEcs(localState, ecsWorld, tankEntity);
-    syncInputToEcs(input, ecsWorld, tankEntity);
+    syncInputToEcs(getActiveInput(), ecsWorld, tankEntity);
     renderer.update(dt, snap);
     animFrame = requestAnimationFrame(loop);
   };

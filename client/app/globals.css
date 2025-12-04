@@ -95,3 +95,26 @@ canvas { display: block; }
   text-shadow: 0 2px 16px rgba(0,0,0,0.8);
   pointer-events: none;
 }
+
+.crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.crosshair::before,
+.crosshair::after {
+  content: '';
+  position: absolute;
+  background: #fdfdfd;
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+}
+
+.crosshair::before { width: 2px; height: 16px; left: 7px; top: 0; }
+.crosshair::after { width: 16px; height: 2px; top: 7px; left: 0; }

@@ -47,7 +47,8 @@ export function createRenderer(opts: {
   const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
   engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 1.8));
   const scene = new Scene(engine);
-  scene.clearColor = new Color4(0, 0, 0, 1);
+  const baseClearColor = new Color4(0, 0, 0, 1);
+  scene.clearColor = baseClearColor.clone();
   scene.imageProcessingConfiguration.exposure = 1.3;
   scene.imageProcessingConfiguration.contrast = 1.05;
 
@@ -144,6 +145,8 @@ export function createRenderer(opts: {
   const _quatTmp = new Quaternion();
   let movement: TuningConfig = { ...DEFAULT_TUNING };
   let getInput: (() => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) | null = null;
+  const FIRE_FLASH_DURATION = 0.12;
+  let fireFlash = 0;
 
   const color3 = (hex: string) => Color3.FromHexString(hex);
 
@@ -151,6 +154,10 @@ export function createRenderer(opts: {
     hudPlayer.textContent = nameLabel;
     hpFill.style.width = `${Math.max(0, Math.min(100, hp))}%`;
     hudScore.textContent = String(score);
+  }
+
+  function setFireFlash() {
+    fireFlash = FIRE_FLASH_DURATION;
   }
 
   function createTankMesh(color: string) {
@@ -340,6 +347,22 @@ export function createRenderer(opts: {
     }
   }
 
+  function applyFireFlash(dt: number) {
+    if (fireFlash > 0) {
+      fireFlash = Math.max(0, fireFlash - dt);
+      const t = fireFlash / FIRE_FLASH_DURATION;
+      const boost = 0.35 * t;
+      scene.clearColor.copyFromFloats(
+        Math.min(1, baseClearColor.r + boost),
+        Math.min(1, baseClearColor.g + boost),
+        Math.min(1, baseClearColor.b + boost),
+        baseClearColor.a
+      );
+    } else {
+      scene.clearColor.copyFrom(baseClearColor);
+    }
+  }
+
   function handleSnapshot(msg: SnapshotMessage) {
     lastSnapshotTime = msg.time;
     if (!gotSnapshot) {
@@ -469,6 +492,7 @@ export function createRenderer(opts: {
     stepLocal(dt);
     renderEntities(dt);
     updateCameraTarget(dt);
+    applyFireFlash(dt);
     scene.render();
   }
 
@@ -493,6 +517,9 @@ export function createRenderer(opts: {
     },
     setInputGetter(fn: () => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) {
       getInput = fn;
+    },
+    triggerFireFlash() {
+      setFireFlash();
     },
   };
 }

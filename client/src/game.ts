@@ -54,6 +54,8 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   weaponSpan.textContent = 'Blaster';
   weaponUi.appendChild(weaponSpan);
   hud.append(hudRow1, hudRow2, hudRow3, weaponUi);
+  const crosshair = document.createElement('div');
+  crosshair.className = 'crosshair';
   const killfeed = document.createElement('div');
   killfeed.className = 'killfeed';
   const centerMsg = document.createElement('div');
@@ -82,6 +84,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   devMatch.textContent = 'Match: --';
   devHud.append(devStatus, devSnap, devPlayers, devMatch);
   container.append(hud, killfeed, centerMsg);
+  container.appendChild(crosshair);
   container.appendChild(devHud);
 
   const movement: TuningConfig = { ...TUNING };
@@ -110,7 +113,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (e.key === 'ArrowUp') input.thrust = 1;
     if (e.key === 'ArrowLeft') input.turn = -1;
     if (e.key === 'ArrowRight') input.turn = 1;
-    if (e.key === ' ') input.fire = true;
+    if (e.key === ' ') {
+      input.fire = true;
+      renderer.triggerFireFlash();
+    }
   };
 
   const keyup = (e: KeyboardEvent) => {
@@ -238,6 +244,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (hud.parentElement) hud.parentElement.removeChild(hud);
     if (killfeed.parentElement) killfeed.parentElement.removeChild(killfeed);
     if (centerMsg.parentElement) centerMsg.parentElement.removeChild(centerMsg);
+    if (crosshair.parentElement) crosshair.parentElement.removeChild(crosshair);
     if (devHud.parentElement) devHud.parentElement.removeChild(devHud);
   };
 }

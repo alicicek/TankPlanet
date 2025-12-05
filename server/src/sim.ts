@@ -1,5 +1,5 @@
 import type { InputState, MatchInfo, PlayerId, PowerupType, Vec3, Vector3Tuple, TuningConfig } from '@shared/types';
-import type { FireZoneSnapshot, ServerMessage, SnapshotMessage } from '@shared/protocol';
+import type { FireZoneSnapshot, ServerMessage, ShotSnapshot, SnapshotMessage } from '@shared/protocol';
 import { PLANET_RADIUS, HOVER, TUNING as BASE_TUNING } from '@shared/config';
 
 // Constants
@@ -13,6 +13,8 @@ const DEFAULT_DAMAGE = 25;
 const PLAYER_RADIUS = 1.2;
 const FIRE_DPS = 15;
 const FIRE_DURATION = 7;
+const SHOT_TTL = 0.22;
+const SHOT_LENGTH = 18;
 const ROUND_DURATION = 90; // seconds, can tweak later
 const SCORE_CAP = 800;
 
@@ -92,6 +94,15 @@ interface FireZone {
   shrink: number;
 }
 
+interface Shot {
+  id: number;
+  owner: PlayerId;
+  origin: Vec3;
+  dir: Vec3;
+  length: number;
+  ttl: number;
+}
+
 function rand(min: number, max: number) {
   return Math.random() * (max - min) + min;
 }
@@ -155,6 +166,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
   const meteors: Meteor[] = [];
   const pickups: Pickup[] = [];
   const fireZones: FireZone[] = [];
+  const shots: Shot[] = [];
   let lastSnap = 0;
   let nextMeteorTime = 0;
   let round = 1;
@@ -295,6 +307,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
       if (target) {
         applyDamage(target, DEFAULT_DAMAGE, p.id);
       }
+      shots.push({ id: nextId++, owner: p.id, origin, dir, length: SHOT_LENGTH, ttl: SHOT_TTL });
     }
   }
 
@@ -307,6 +320,13 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
         projectiles.splice(i, 1);
         continue;
       }
+    }
+  }
+
+  function stepShots(dt: number) {
+    for (let i = shots.length - 1; i >= 0; i--) {
+      shots[i].ttl -= dt;
+      if (shots[i].ttl <= 0) shots.splice(i, 1);
     }
   }
 
@@ -441,6 +461,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     meteors.length = 0;
     pickups.length = 0;
     fireZones.length = 0;
+    shots.length = 0;
     match.state = 'active';
     round += 1;
     roundStartTime = now;
@@ -473,6 +494,14 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
         radius: f.radius,
         ttl: Math.max(0, f.duration - (now - f.start)),
       })),
+      shots: shots.map<ShotSnapshot>((s) => ({
+        id: s.id,
+        owner: s.owner,
+        origin: toTuple(s.origin),
+        dir: toTuple(s.dir),
+        length: s.length,
+        ttl: Math.max(0, s.ttl),
+      })),
       match,
     };
     emit(payload);
@@ -490,6 +519,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     }
     processFiring(now, TICK);
     stepProjectiles(TICK);
+    stepShots(TICK);
     stepMeteors(now, TICK);
     stepFireZones(now, TICK);
     stepPickups(now);

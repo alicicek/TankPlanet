@@ -134,7 +134,10 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (e.key === ' ') input.fire = false;
   };
 
-  const pointerDown = () => (input.fire = true);
+  const pointerDown = () => {
+    input.fire = true;
+    renderer.triggerFireFlash();
+  };
   const pointerUp = () => (input.fire = false);
   const errorHandler = (e: ErrorEvent) => {
     console.error(e.error || e.message);

@@ -28,6 +28,15 @@ export interface FireZoneSnapshot {
   ttl: number;
 }
 
+export interface ShotSnapshot {
+  id: number;
+  owner: PlayerId;
+  origin: Vector3Tuple;
+  dir: Vector3Tuple;
+  length: number;
+  ttl: number;
+}
+
 export interface SnapshotMessage {
   type: 'snap';
   time: number;
@@ -35,6 +44,7 @@ export interface SnapshotMessage {
   meteors: MeteorSnapshot[];
   pickups: PickupSnapshot[];
   fire: FireZoneSnapshot[];
+  shots: ShotSnapshot[];
   match?: MatchInfo;
 }
 

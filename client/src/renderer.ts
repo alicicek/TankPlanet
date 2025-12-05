@@ -119,6 +119,7 @@ export function createRenderer(opts: {
   const tankMeshes = new Map<number, TransformNode>();
   const pickupMeshes = new Map<number, Mesh>();
   const fireMeshes = new Map<number, Mesh>();
+  const shotMeshes = new Map<number, { mesh: Mesh; ttl: number; maxTtl: number }>();
   const renderStates = new Map<
     number,
     { pos: Vector3; targetPos: Vector3; heading: Vector3; targetHeading: Vector3; yaw: number; targetYaw: number }
@@ -146,6 +147,9 @@ export function createRenderer(opts: {
   let movement: TuningConfig = { ...DEFAULT_TUNING };
   let getInput: (() => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) | null = null;
   const FIRE_FLASH_DURATION = 0.12;
+  const SHOT_TTL = 0.22;
+  const SHOT_LENGTH = 18;
+  const SHOT_RATE = 0.25;
   let fireFlash = 0;
   const DAMAGE_FLASH_DURATION = 0.25;
   const DAMAGE_SHAKE_DURATION = 0.22;
@@ -155,6 +159,9 @@ export function createRenderer(opts: {
   let wasAlive = true;
   let onLocalDeath: ((message: string) => void) | null = null;
   let onLocalRespawn: (() => void) | null = null;
+  let lastShotEffectTime = 0;
+  let localShotId = -1;
+  let audioCtx: AudioContext | null = null;
 
   const color3 = (hex: string) => Color3.FromHexString(hex);
 
@@ -172,6 +179,81 @@ export function createRenderer(opts: {
     if (amountLost <= 0) return;
     damageFlash = DAMAGE_FLASH_DURATION;
     damageShakeTime = DAMAGE_SHAKE_DURATION;
+  }
+
+  function playFireSound() {
+    try {
+      const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext?: AudioContext }).webkitAudioContext) as
+        | typeof AudioContext
+        | undefined;
+      if (!Ctor) return;
+      if (!audioCtx) audioCtx = new Ctor();
+      const ctx = audioCtx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const now = ctx.currentTime;
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(320, now + 0.12);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.18);
+    } catch {
+      // ignore audio errors (e.g., autoplay restrictions)
+    }
+  }
+
+  function positionShotMesh(mesh: Mesh, origin: Vector3, dir: Vector3, length: number) {
+    const forward = dir.lengthSquared() > 1e-6 ? dir.normalize() : new Vector3(0, 0, 1);
+    mesh.scaling.set(1, 1, length);
+    mesh.position.copyFrom(origin).addInPlace(forward.scale(length * 0.5));
+    mesh.setDirection(forward);
+  }
+
+  function upsertShot(id: number, origin: Vector3, dir: Vector3, length: number, ttl: number) {
+    const forward = dir.lengthSquared() > 1e-6 ? dir.normalize() : new Vector3(0, 0, 1);
+    let entry = shotMeshes.get(id);
+    if (!entry) {
+      const mesh = MeshBuilder.CreateBox(`shot-${id}`, { width: 0.16, height: 0.16, depth: 1 }, scene);
+      mesh.isPickable = false;
+      const mat = new StandardMaterial(`shotMat-${id}`, scene);
+      mat.emissiveColor = color3('#ffd29e');
+      mat.diffuseColor = color3('#ff8f5f').scale(0.18);
+      mat.specularColor = Color3.Black();
+      mat.alpha = 0.9;
+      mesh.material = mat;
+      entry = { mesh, ttl, maxTtl: Math.max(ttl, 0.01) };
+      shotMeshes.set(id, entry);
+    } else {
+      entry.ttl = Math.max(entry.ttl, ttl);
+      entry.maxTtl = Math.max(entry.maxTtl, ttl);
+    }
+    positionShotMesh(entry.mesh, origin, forward, length);
+  }
+
+  function spawnLocalShot() {
+    if (!localState || !localState.alive) return;
+    const origin = new Vector3(localState.pos[0], localState.pos[1], localState.pos[2]);
+    const dir = new Vector3(localState.heading[0], localState.heading[1], localState.heading[2]);
+    if (dir.lengthSquared() < 1e-6) return;
+    dir.normalize();
+    const muzzle = origin.add(dir.scale(1.6));
+    upsertShot(localShotId--, muzzle, dir, SHOT_LENGTH, SHOT_TTL);
+  }
+
+  function performShotVfx(now: number) {
+    lastShotEffectTime = now;
+    setFireFlash();
+    spawnLocalShot();
+    playFireSound();
+  }
+
+  function tryShotVfx(now = performance.now() / 1000) {
+    if (now - lastShotEffectTime < SHOT_RATE * 0.8) return;
+    performShotVfx(now);
   }
 
   function createTankMesh(color: string) {
@@ -390,6 +472,22 @@ export function createRenderer(opts: {
     camera.setTarget(camera.getTarget().add(shake));
   }
 
+  function updateShots(dt: number) {
+    for (const [id, shot] of shotMeshes) {
+      shot.ttl -= dt;
+      if (shot.ttl <= 0) {
+        shot.mesh.dispose();
+        shotMeshes.delete(id);
+        continue;
+      }
+      const mat = shot.mesh.material as StandardMaterial | null;
+      if (mat) {
+        const t = shot.maxTtl > 0 ? shot.ttl / shot.maxTtl : 0;
+        mat.alpha = 0.2 + 0.8 * Math.max(0, Math.min(1, t));
+      }
+    }
+  }
+
   function handleSnapshot(msg: SnapshotMessage) {
     lastSnapshotTime = msg.time;
     if (!gotSnapshot) {
@@ -506,6 +604,12 @@ export function createRenderer(opts: {
       ring.setEnabled(true);
       ring.position.set(f.center[0], f.center[1], f.center[2]);
     });
+
+    msg.shots?.forEach((s) => {
+      const origin = new Vector3(s.origin[0], s.origin[1], s.origin[2]);
+      const dir = new Vector3(s.dir[0], s.dir[1], s.dir[2]);
+      upsertShot(s.id, origin, dir, s.length, s.ttl);
+    });
   }
 
   function updateCameraTarget(dt: number) {
@@ -526,8 +630,13 @@ export function createRenderer(opts: {
     if (snapshot) {
       handleSnapshot(snapshot);
     }
+    const isFiring = getInput?.()?.fire ?? false;
+    if (isFiring) {
+      tryShotVfx();
+    }
     stepLocal(dt);
     renderEntities(dt);
+    updateShots(dt);
     updateCameraTarget(dt);
     applyDamageShake(dt);
     applyScreenEffects(dt);
@@ -557,7 +666,7 @@ export function createRenderer(opts: {
       getInput = fn;
     },
     triggerFireFlash() {
-      setFireFlash();
+      tryShotVfx();
     },
     setOnLocalDeath(fn: (message: string) => void) {
       onLocalDeath = fn;

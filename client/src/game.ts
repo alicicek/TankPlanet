@@ -124,7 +124,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
     if (e.key === 'ArrowRight') input.turn = 1;
     if (e.key === ' ') {
       input.fire = true;
-      renderer.triggerFireFlash();
     }
   };
 
@@ -136,7 +135,6 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   const pointerDown = () => {
     input.fire = true;
-    renderer.triggerFireFlash();
   };
   const pointerUp = () => (input.fire = false);
   const errorHandler = (e: ErrorEvent) => {

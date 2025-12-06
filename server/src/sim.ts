@@ -15,6 +15,8 @@ const FIRE_DPS = 15;
 const FIRE_DURATION = 7;
 const SHOT_TTL = 0.22;
 const SHOT_LENGTH = 18;
+const SHOT_RANGE = 40;
+const AUTO_AIM_MAX_DEG = 14;
 const ROUND_DURATION = 90; // seconds, can tweak later
 const SCORE_CAP = 800;
 
@@ -242,6 +244,28 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     return best?.player ?? null;
   }
 
+  function findAutoAimTarget(origin: Vec3, dir: Vec3, maxDist: number, shooterId: PlayerId): Player | null {
+    const maxAngle = (AUTO_AIM_MAX_DEG * Math.PI) / 180;
+    const minCos = Math.cos(maxAngle);
+    let best: { player: Player; score: number } | null = null;
+
+    for (const p of players.values()) {
+      if (!p.alive || p.id === shooterId) continue;
+      const toTarget = v.sub(p.pos, origin);
+      const dist = v.len(toTarget);
+      if (dist < 0.1 || dist > maxDist) continue;
+      const toDir = v.scale(toTarget, 1 / dist);
+      const cosAngle = v.dot(dir, toDir);
+      if (cosAngle < minCos) continue;
+      const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+      const score = angle * 0.7 + dist * 0.3;
+      if (!best || score < best.score) {
+        best = { player: p, score };
+      }
+    }
+    return best?.player ?? null;
+  }
+
   function applyDamage(target: Player, amount: number, sourceId: PlayerId) {
     target.hp -= amount;
     const prev = target.contrib.get(sourceId) || 0;
@@ -301,13 +325,22 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
       if (!p.alive || !p.input.fire) continue;
       if (now - p.lastFire < FIRE_RATE) continue;
       p.lastFire = now;
-      const dir = v.norm(p.heading);
-      const origin = v.add(p.pos, v.scale(dir, 1.5));
-      const target = rayHitPlayer(origin, dir, 40, p.id);
-      if (target) {
-        applyDamage(target, DEFAULT_DAMAGE, p.id);
+      const baseDir = v.norm(p.heading);
+      const origin = v.add(p.pos, v.scale(baseDir, 1.5));
+      let shotDir = baseDir;
+      const autoTarget = findAutoAimTarget(origin, baseDir, SHOT_RANGE, p.id);
+
+      if (autoTarget) {
+        const toTarget = v.sub(autoTarget.pos, origin);
+        const dist = v.len(toTarget) || 1;
+        shotDir = v.scale(toTarget, 1 / dist);
+        applyDamage(autoTarget, DEFAULT_DAMAGE, p.id);
+      } else {
+        const target = rayHitPlayer(origin, baseDir, SHOT_RANGE, p.id);
+        if (target) applyDamage(target, DEFAULT_DAMAGE, p.id);
       }
-      shots.push({ id: nextId++, owner: p.id, origin, dir, length: SHOT_LENGTH, ttl: SHOT_TTL });
+
+      shots.push({ id: nextId++, owner: p.id, origin, dir: shotDir, length: SHOT_LENGTH, ttl: SHOT_TTL });
     }
   }
 

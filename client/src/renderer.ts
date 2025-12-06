@@ -119,7 +119,22 @@ export function createRenderer(opts: {
   const tankMeshes = new Map<number, TransformNode>();
   const pickupMeshes = new Map<number, Mesh>();
   const fireMeshes = new Map<number, Mesh>();
-  const shotMeshes = new Map<number, { mesh: Mesh; ttl: number; maxTtl: number }>();
+  // --- shooting visual constants ---
+  const SHOT_TTL = 0.22;
+  const SHOT_LENGTH = 18;
+  const SHOT_RATE = 0.25; // keep in sync with server FIRE_RATE
+  const MAX_ARC_FRACTION = 0.35; // fraction of circumference the tracer can travel
+  const SHOT_VISIBLE_SCALE = 0.65;
+  type ShotRender = {
+    mesh: Mesh;
+    ttl: number;
+    maxTtl: number;
+    origin: Vector3;
+    dir: Vector3;
+    radialDir: Vector3;
+    axis: Vector3;
+  };
+  const shotMeshes = new Map<number, ShotRender>();
   const renderStates = new Map<
     number,
     { pos: Vector3; targetPos: Vector3; heading: Vector3; targetHeading: Vector3; yaw: number; targetYaw: number }
@@ -147,9 +162,6 @@ export function createRenderer(opts: {
   let movement: TuningConfig = { ...DEFAULT_TUNING };
   let getInput: (() => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) | null = null;
   const FIRE_FLASH_DURATION = 0.12;
-  const SHOT_TTL = 0.22;
-  const SHOT_LENGTH = 18;
-  const SHOT_RATE = 0.25;
   let fireFlash = 0;
   const DAMAGE_FLASH_DURATION = 0.25;
   const DAMAGE_SHAKE_DURATION = 0.22;
@@ -159,6 +171,9 @@ export function createRenderer(opts: {
   let wasAlive = true;
   let onLocalDeath: ((message: string) => void) | null = null;
   let onLocalRespawn: (() => void) | null = null;
+  const MUZZLE_FLASH_TTL = 0.08;
+  type MuzzleFlash = { mesh: Mesh; ttl: number; maxTtl: number };
+  const muzzleFlashes: MuzzleFlash[] = [];
   let lastShotEffectTime = 0;
   let localShotId = -1;
   let audioCtx: AudioContext | null = null;
@@ -206,54 +221,146 @@ export function createRenderer(opts: {
     }
   }
 
-  function positionShotMesh(mesh: Mesh, origin: Vector3, dir: Vector3, length: number) {
-    const forward = dir.lengthSquared() > 1e-6 ? dir.normalize() : new Vector3(0, 0, 1);
-    mesh.scaling.set(1, 1, length);
-    mesh.position.copyFrom(origin).addInPlace(forward.scale(length * 0.5));
+  function spawnMuzzleFlash(position: Vector3) {
+    const mesh = MeshBuilder.CreatePlane('muzzleFlash', { size: 0.9 }, scene);
+    mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    mesh.isPickable = false;
+    mesh.position.copyFrom(position);
+
+    const mat = new StandardMaterial('muzzleFlashMat', scene);
+    mat.emissiveColor = color3('#ff3b3b');
+    mat.diffuseColor = color3('#ffb27c').scale(0.6);
+    mat.specularColor = Color3.Black();
+    mat.alpha = 0.9;
+    mesh.material = mat;
+
+    muzzleFlashes.push({ mesh, ttl: MUZZLE_FLASH_TTL, maxTtl: MUZZLE_FLASH_TTL });
+  }
+
+  function updateMuzzleFlashes(dt: number) {
+    for (let i = muzzleFlashes.length - 1; i >= 0; i--) {
+      const f = muzzleFlashes[i];
+      f.ttl -= dt;
+      if (f.ttl <= 0) {
+        f.mesh.dispose();
+        muzzleFlashes.splice(i, 1);
+        continue;
+      }
+      const mat = f.mesh.material as StandardMaterial | null;
+      if (mat) {
+        const t = f.ttl / f.maxTtl;
+        mat.alpha = 0.3 + 0.7 * t;
+        mat.emissiveColor = color3('#ff3b3b').scale(0.6 + 0.4 * t);
+      }
+      const scale = 0.7 + 0.6 * (1 - Math.max(0, Math.min(1, f.ttl / f.maxTtl)));
+      f.mesh.scaling.set(scale, scale, scale);
+    }
+  }
+
+  function positionShotMesh(mesh: Mesh, center: Vector3, forward: Vector3, length: number) {
+    mesh.scaling.set(0.16, 0.16, length);
+    mesh.position.copyFrom(center).addInPlace(forward.scale(length * 0.5));
     mesh.setDirection(forward);
   }
 
-  function upsertShot(id: number, origin: Vector3, dir: Vector3, length: number, ttl: number) {
+  function positionCurvedShot(entry: ShotRender) {
+    const radius = entry.origin.length();
+    if (radius <= 1e-3) return;
+
+    const lifeFrac = entry.maxTtl > 0 ? 1 - entry.ttl / entry.maxTtl : 1;
+    const radial = entry.radialDir;
+    const axis = entry.axis;
+
+    const maxAngle = Math.PI * 2 * MAX_ARC_FRACTION;
+    const angle = maxAngle * Scalar.Clamp(lifeFrac, 0, 1);
+
+    const around = Vector3.Cross(axis, radial);
+    if (around.lengthSquared() < 1e-6) return;
+
+    const centerDir = radial
+      .scale(Math.cos(angle))
+      .add(around.scale(Math.sin(angle)))
+      .normalize();
+
+    const pos = centerDir.scale(radius);
+    const forward = Vector3.Cross(axis, centerDir).normalize();
+    positionShotMesh(entry.mesh, pos, forward, SHOT_LENGTH * SHOT_VISIBLE_SCALE);
+  }
+
+  function upsertShot(
+    id: number,
+    origin: Vector3,
+    dir: Vector3,
+    length: number,
+    ttl: number,
+    ownerId?: number
+  ) {
     const forward = dir.lengthSquared() > 1e-6 ? dir.normalize() : new Vector3(0, 0, 1);
+    const radius = origin.length();
+    const radialDir = radius > 1e-6 ? origin.scale(1 / radius) : new Vector3(0, 1, 0);
+    const fDotR = Vector3.Dot(forward, radialDir);
+    let tangent = forward.subtract(radialDir.scale(fDotR));
+    if (tangent.lengthSquared() < 1e-6) {
+      tangent = Vector3.Cross(radialDir, Vector3.Up());
+      if (tangent.lengthSquared() < 1e-6) tangent = Vector3.Cross(radialDir, new Vector3(1, 0, 0));
+    }
+    tangent.normalize();
+
+    let axis = Vector3.Cross(radialDir, tangent);
+    if (axis.lengthSquared() < 1e-6) axis = new Vector3(0, 1, 0);
+    else axis.normalize();
+
     let entry = shotMeshes.get(id);
     if (!entry) {
-      const mesh = MeshBuilder.CreateBox(`shot-${id}`, { width: 0.16, height: 0.16, depth: 1 }, scene);
+      const mesh = MeshBuilder.CreateBox(`shot-${id}`, { width: 0.16, height: 0.16, depth: length }, scene);
       mesh.isPickable = false;
       const mat = new StandardMaterial(`shotMat-${id}`, scene);
-      mat.emissiveColor = color3('#ffd29e');
-      mat.diffuseColor = color3('#ff8f5f').scale(0.18);
+      mat.emissiveColor = color3('#ff5b5b');
+      mat.diffuseColor = color3('#ffb27c').scale(0.2);
       mat.specularColor = Color3.Black();
       mat.alpha = 0.9;
       mesh.material = mat;
-      entry = { mesh, ttl, maxTtl: Math.max(ttl, 0.01) };
+      entry = {
+        mesh,
+        ttl,
+        maxTtl: Math.max(ttl, 0.01),
+        origin: origin.add(radialDir.scale(0.4)).clone(),
+        dir: forward.clone(),
+        radialDir,
+        axis,
+      };
       shotMeshes.set(id, entry);
+      if (ownerId === undefined || ownerId !== playerId) {
+        spawnMuzzleFlash(origin);
+      }
     } else {
       entry.ttl = Math.max(entry.ttl, ttl);
       entry.maxTtl = Math.max(entry.maxTtl, ttl);
+      entry.origin.copyFrom(origin.add(radialDir.scale(0.4)));
+      entry.dir.copyFrom(forward);
+      entry.radialDir.copyFrom(radialDir);
+      entry.axis.copyFrom(axis);
     }
-    positionShotMesh(entry.mesh, origin, forward, length);
+
+    positionCurvedShot(entry);
   }
 
-  function spawnLocalShot() {
+  function triggerLocalFireVfx() {
     if (!localState || !localState.alive) return;
     const origin = new Vector3(localState.pos[0], localState.pos[1], localState.pos[2]);
     const dir = new Vector3(localState.heading[0], localState.heading[1], localState.heading[2]);
     if (dir.lengthSquared() < 1e-6) return;
     dir.normalize();
-    const muzzle = origin.add(dir.scale(1.6));
-    upsertShot(localShotId--, muzzle, dir, SHOT_LENGTH, SHOT_TTL);
-  }
-
-  function performShotVfx(now: number) {
-    lastShotEffectTime = now;
-    setFireFlash();
-    spawnLocalShot();
+    const muzzle = origin.add(dir.scale(1.5));
+    spawnMuzzleFlash(muzzle);
     playFireSound();
+    setFireFlash();
   }
 
   function tryShotVfx(now = performance.now() / 1000) {
     if (now - lastShotEffectTime < SHOT_RATE * 0.8) return;
-    performShotVfx(now);
+    lastShotEffectTime = now;
+    triggerLocalFireVfx();
   }
 
   function createTankMesh(color: string) {
@@ -485,6 +592,7 @@ export function createRenderer(opts: {
         const t = shot.maxTtl > 0 ? shot.ttl / shot.maxTtl : 0;
         mat.alpha = 0.2 + 0.8 * Math.max(0, Math.min(1, t));
       }
+      positionCurvedShot(shot);
     }
   }
 
@@ -608,7 +716,7 @@ export function createRenderer(opts: {
     msg.shots?.forEach((s) => {
       const origin = new Vector3(s.origin[0], s.origin[1], s.origin[2]);
       const dir = new Vector3(s.dir[0], s.dir[1], s.dir[2]);
-      upsertShot(s.id, origin, dir, s.length, s.ttl);
+      upsertShot(s.id, origin, dir, s.length, s.ttl, s.owner);
     });
   }
 
@@ -630,13 +738,16 @@ export function createRenderer(opts: {
     if (snapshot) {
       handleSnapshot(snapshot);
     }
-    const isFiring = getInput?.()?.fire ?? false;
-    if (isFiring) {
-      tryShotVfx();
+    if (getInput && localState && localState.alive) {
+      const input = getInput();
+      if (input.fire) {
+        tryShotVfx();
+      }
     }
     stepLocal(dt);
     renderEntities(dt);
     updateShots(dt);
+    updateMuzzleFlashes(dt);
     updateCameraTarget(dt);
     applyDamageShake(dt);
     applyScreenEffects(dt);
@@ -664,9 +775,6 @@ export function createRenderer(opts: {
     },
     setInputGetter(fn: () => Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'>) {
       getInput = fn;
-    },
-    triggerFireFlash() {
-      tryShotVfx();
     },
     setOnLocalDeath(fn: (message: string) => void) {
       onLocalDeath = fn;

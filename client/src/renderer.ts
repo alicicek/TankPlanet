@@ -120,11 +120,16 @@ export function createRenderer(opts: {
   const pickupMeshes = new Map<number, Mesh>();
   const fireMeshes = new Map<number, Mesh>();
   // --- shooting visual constants ---
-  const SHOT_TTL = 0.22;
-  const SHOT_LENGTH = 18;
-  const SHOT_RATE = 0.25; // keep in sync with server FIRE_RATE
+  const SHOT_RATE = 0.5; // keep in sync with server FIRE_RATE
   const MAX_ARC_FRACTION = 0.35; // fraction of circumference the tracer can travel
   const SHOT_VISIBLE_SCALE = 0.65;
+  const DEBUG_SHOT_VISUALS = true;
+  const DEBUG_SHOT_TTL_SCALE = 6;
+  const DEBUG_SHOT_ARC_LENGTH = 60; // keep in sync with server SHOT_RANGE
+  const DEBUG_SHOT_WIDTH = 0.4;
+  const DEBUG_SHOT_HEIGHT = 0.25;
+  const DEBUG_SHOT_DEPTH = 1.5;
+  const DEBUG_SHOT_RADIAL_OFFSET = 0.6;
   type ShotRender = {
     mesh: Mesh;
     ttl: number;
@@ -133,6 +138,12 @@ export function createRenderer(opts: {
     dir: Vector3;
     radialDir: Vector3;
     axis: Vector3;
+    width: number;
+    height: number;
+    depth: number;
+    maxArcLength: number | null;
+    centerOnPoint: boolean;
+    fade: boolean;
   };
   const shotMeshes = new Map<number, ShotRender>();
   const renderStates = new Map<
@@ -257,9 +268,18 @@ export function createRenderer(opts: {
     }
   }
 
-  function positionShotMesh(mesh: Mesh, center: Vector3, forward: Vector3, length: number) {
-    mesh.scaling.set(0.16, 0.16, length);
-    mesh.position.copyFrom(center).addInPlace(forward.scale(length * 0.5));
+  function positionShotMesh(
+    mesh: Mesh,
+    center: Vector3,
+    forward: Vector3,
+    width: number,
+    height: number,
+    depth: number,
+    centerOnPoint: boolean
+  ) {
+    mesh.scaling.set(width, height, depth);
+    mesh.position.copyFrom(center);
+    if (!centerOnPoint) mesh.position.addInPlace(forward.scale(depth * 0.5));
     mesh.setDirection(forward);
   }
 
@@ -271,7 +291,7 @@ export function createRenderer(opts: {
     const radial = entry.radialDir;
     const axis = entry.axis;
 
-    const maxAngle = Math.PI * 2 * MAX_ARC_FRACTION;
+    const maxAngle = entry.maxArcLength != null ? Scalar.Clamp(entry.maxArcLength / radius, 0, Math.PI * 2) : Math.PI * 2 * MAX_ARC_FRACTION;
     const angle = maxAngle * Scalar.Clamp(lifeFrac, 0, 1);
 
     const around = Vector3.Cross(axis, radial);
@@ -284,7 +304,7 @@ export function createRenderer(opts: {
 
     const pos = centerDir.scale(radius);
     const forward = Vector3.Cross(axis, centerDir).normalize();
-    positionShotMesh(entry.mesh, pos, forward, SHOT_LENGTH * SHOT_VISIBLE_SCALE);
+    positionShotMesh(entry.mesh, pos, forward, entry.width, entry.height, entry.depth, entry.centerOnPoint);
   }
 
   function upsertShot(
@@ -310,36 +330,56 @@ export function createRenderer(opts: {
     if (axis.lengthSquared() < 1e-6) axis = new Vector3(0, 1, 0);
     else axis.normalize();
 
+    const visualTtl = DEBUG_SHOT_VISUALS ? ttl * DEBUG_SHOT_TTL_SCALE : ttl;
+    const visualWidth = DEBUG_SHOT_VISUALS ? DEBUG_SHOT_WIDTH : 0.16;
+    const visualHeight = DEBUG_SHOT_VISUALS ? DEBUG_SHOT_HEIGHT : 0.16;
+    const visualDepth = DEBUG_SHOT_VISUALS ? DEBUG_SHOT_DEPTH : length * SHOT_VISIBLE_SCALE;
+    const maxArcLength = DEBUG_SHOT_VISUALS ? DEBUG_SHOT_ARC_LENGTH : null;
+    const centerOnPoint = DEBUG_SHOT_VISUALS;
+    const fade = !DEBUG_SHOT_VISUALS;
+
     let entry = shotMeshes.get(id);
     if (!entry) {
-      const mesh = MeshBuilder.CreateBox(`shot-${id}`, { width: 0.16, height: 0.16, depth: length }, scene);
+      const mesh = MeshBuilder.CreateBox(`shot-${id}`, { width: 1, height: 1, depth: 1 }, scene);
       mesh.isPickable = false;
       const mat = new StandardMaterial(`shotMat-${id}`, scene);
-      mat.emissiveColor = color3('#ff5b5b');
-      mat.diffuseColor = color3('#ffb27c').scale(0.2);
+      mat.emissiveColor = color3('#ffffff');
+      mat.diffuseColor = color3('#ffffff');
       mat.specularColor = Color3.Black();
-      mat.alpha = 0.9;
+      mat.alpha = 1;
       mesh.material = mat;
       entry = {
         mesh,
-        ttl,
-        maxTtl: Math.max(ttl, 0.01),
-        origin: origin.add(radialDir.scale(0.4)).clone(),
+        ttl: visualTtl,
+        maxTtl: Math.max(visualTtl, 0.01),
+        origin: origin.add(radialDir.scale(DEBUG_SHOT_VISUALS ? DEBUG_SHOT_RADIAL_OFFSET : 0.4)).clone(),
         dir: forward.clone(),
         radialDir,
         axis,
+        width: visualWidth,
+        height: visualHeight,
+        depth: visualDepth,
+        maxArcLength,
+        centerOnPoint,
+        fade,
       };
       shotMeshes.set(id, entry);
       if (ownerId === undefined || ownerId !== playerId) {
-        spawnMuzzleFlash(origin);
+        spawnMuzzleFlash(origin.add(forward.scale(1.5)));
       }
     } else {
-      entry.ttl = Math.max(entry.ttl, ttl);
-      entry.maxTtl = Math.max(entry.maxTtl, ttl);
-      entry.origin.copyFrom(origin.add(radialDir.scale(0.4)));
+      entry.ttl = Math.max(entry.ttl, visualTtl);
+      entry.maxTtl = Math.max(entry.maxTtl, visualTtl);
+      entry.origin.copyFrom(origin.add(radialDir.scale(DEBUG_SHOT_VISUALS ? DEBUG_SHOT_RADIAL_OFFSET : 0.4)));
       entry.dir.copyFrom(forward);
       entry.radialDir.copyFrom(radialDir);
       entry.axis.copyFrom(axis);
+      entry.width = visualWidth;
+      entry.height = visualHeight;
+      entry.depth = visualDepth;
+      entry.maxArcLength = maxArcLength;
+      entry.centerOnPoint = centerOnPoint;
+      entry.fade = fade;
     }
 
     positionCurvedShot(entry);
@@ -419,7 +459,7 @@ export function createRenderer(opts: {
 
     const currentYawVel = localState.yawVel ?? 0;
     const targetYawVel = input.turn * movement.turnSpeed;
-    const lerp = Math.min(1, movement.turnSmooth * dt);
+    const lerp = Math.min(1, (movement.turnSmooth ?? DEFAULT_TUNING.turnSmooth) * dt);
     const nextYawVel = currentYawVel + (targetYawVel - currentYawVel) * lerp;
     localState.yawVel = nextYawVel;
     const dYaw = nextYawVel * dt;
@@ -589,8 +629,12 @@ export function createRenderer(opts: {
       }
       const mat = shot.mesh.material as StandardMaterial | null;
       if (mat) {
-        const t = shot.maxTtl > 0 ? shot.ttl / shot.maxTtl : 0;
-        mat.alpha = 0.2 + 0.8 * Math.max(0, Math.min(1, t));
+        if (shot.fade) {
+          const t = shot.maxTtl > 0 ? shot.ttl / shot.maxTtl : 0;
+          mat.alpha = 0.2 + 0.8 * Math.max(0, Math.min(1, t));
+        } else {
+          mat.alpha = 1;
+        }
       }
       positionCurvedShot(shot);
     }

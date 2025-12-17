@@ -91,7 +91,7 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
 
   const input: Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'> = { thrust: 0, turn: 0, fire: false, power: false };
   let roundFrozenUntil = 0;
-  const getActiveInput = () => {
+  const getActiveInput = (): Pick<InputState, 'thrust' | 'turn' | 'fire' | 'power'> => {
     if (performance.now() < roundFrozenUntil) {
       return { thrust: 0, turn: 0, fire: false, power: false };
     }
@@ -119,17 +119,28 @@ export function startGame(canvas: HTMLCanvasElement): () => void {
   let localState: SnapshotPlayer | null = null;
 
   const keydown = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowUp') input.thrust = 1;
-    if (e.key === 'ArrowLeft') input.turn = -1;
-    if (e.key === 'ArrowRight') input.turn = 1;
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') input.thrust = 1;
+    if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') input.thrust = -1;
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.turn = -1;
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.turn = 1;
     if (e.key === ' ') {
       input.fire = true;
     }
   };
 
   const keyup = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowUp') input.thrust = 0;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') input.turn = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S') {
+      input.thrust = 0;
+    }
+    if (
+      e.key === 'ArrowLeft' ||
+      e.key === 'ArrowRight' ||
+      e.key === 'a' ||
+      e.key === 'A' ||
+      e.key === 'd' ||
+      e.key === 'D'
+    )
+      input.turn = 0;
     if (e.key === ' ') input.fire = false;
   };
 

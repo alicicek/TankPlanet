@@ -8,14 +8,14 @@ const TUNING: Required<TuningConfig> = BASE_TUNING;
 export const TICK = 1 / 35;
 const SNAP_RATE = 1 / 12;
 const RESPAWN_DELAY = 2.5;
-const FIRE_RATE = 0.25; // seconds per shot default
+const FIRE_RATE = 0.5; // seconds per shot default
 const DEFAULT_DAMAGE = 25;
 const PLAYER_RADIUS = 1.2;
 const FIRE_DPS = 15;
 const FIRE_DURATION = 7;
 const SHOT_TTL = 0.22;
 const SHOT_LENGTH = 18;
-const SHOT_RANGE = 40;
+const SHOT_RANGE = 60;
 const AUTO_AIM_MAX_DEG = 14;
 const ROUND_DURATION = 90; // seconds, can tweak later
 const SCORE_CAP = 800;
@@ -39,6 +39,11 @@ const v = {
     const l = v.len(a) || 1;
     return { x: a.x / l, y: a.y / l, z: a.z / l };
   },
+  cross: (a: Vec3, b: Vec3): Vec3 => ({
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  }),
 };
 const toTuple = (vec: Vec3): Vector3Tuple => [vec.x, vec.y, vec.z];
 
@@ -227,20 +232,50 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
     }
   }
 
-  function rayHitPlayer(origin: Vec3, dir: Vec3, range: number, ignoreId: PlayerId) {
+  function rayHitPlayerCurved(origin: Vec3, dir: Vec3, maxArcLength: number, ignoreId: PlayerId) {
     let best: { player: Player; dist: number } | null = null;
-    const r2 = range * range;
+
+    const originRadius = v.len(origin);
+    if (originRadius <= 1e-6) return null;
+
+    const originRadial = v.scale(origin, 1 / originRadius);
+    const dirNorm = v.norm(dir);
+    let tangentDir = v.sub(dirNorm, v.scale(originRadial, v.dot(dirNorm, originRadial)));
+    const tangentLen = v.len(tangentDir);
+    if (tangentLen <= 1e-6) return null;
+    tangentDir = v.scale(tangentDir, 1 / tangentLen);
+
+    const planeNormalRaw = v.cross(originRadial, tangentDir);
+    const planeNormalLen = v.len(planeNormalRaw);
+    if (planeNormalLen <= 1e-6) return null;
+    const planeNormal = v.scale(planeNormalRaw, 1 / planeNormalLen);
+
     for (const p of players.values()) {
       if (!p.alive || p.id === ignoreId) continue;
-      const toP = v.sub(p.pos, origin);
-      const proj = v.dot(toP, dir);
-      if (proj < 0 || proj * proj > r2) continue;
-      const closest = v.add(origin, v.scale(dir, proj));
-      const dist = v.len(v.sub(p.pos, closest));
-      if (dist <= PLAYER_RADIUS) {
-        if (!best || proj < best.dist) best = { player: p, dist: proj };
-      }
+
+      // Cross-track distance from the great-circle plane.
+      const distFromPlane = v.dot(p.pos, planeNormal);
+      if (Math.abs(distFromPlane) > PLAYER_RADIUS) continue;
+
+      // Project onto the shot plane to compute along-track (arc) distance.
+      const projectedPos = v.sub(p.pos, v.scale(planeNormal, distFromPlane));
+      const projectedLen = v.len(projectedPos);
+      if (projectedLen <= 1e-6) continue;
+      const projectedRadial = v.scale(projectedPos, 1 / projectedLen);
+
+      const cosTheta = v.dot(originRadial, projectedRadial);
+      const crossTheta = v.cross(originRadial, projectedRadial);
+      const sinTheta = v.dot(planeNormal, crossTheta);
+      const signedTheta = Math.atan2(sinTheta, cosTheta);
+
+      if (signedTheta <= 0) continue;
+
+      const arcDist = signedTheta * originRadius;
+      if (arcDist > maxArcLength) continue;
+
+      if (!best || arcDist < best.dist) best = { player: p, dist: arcDist };
     }
+
     return best?.player ?? null;
   }
 
@@ -326,7 +361,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
       if (now - p.lastFire < FIRE_RATE) continue;
       p.lastFire = now;
       const baseDir = v.norm(p.heading);
-      const origin = v.add(p.pos, v.scale(baseDir, 1.5));
+      const origin: Vec3 = { ...p.pos };
       let shotDir = baseDir;
       const autoTarget = findAutoAimTarget(origin, baseDir, SHOT_RANGE, p.id);
 
@@ -336,7 +371,7 @@ export function createSim(onBroadcast: (msg: ServerMessage) => void) {
         shotDir = v.scale(toTarget, 1 / dist);
         applyDamage(autoTarget, DEFAULT_DAMAGE, p.id);
       } else {
-        const target = rayHitPlayer(origin, baseDir, SHOT_RANGE, p.id);
+        const target = rayHitPlayerCurved(origin, baseDir, SHOT_RANGE, p.id);
         if (target) applyDamage(target, DEFAULT_DAMAGE, p.id);
       }
 
